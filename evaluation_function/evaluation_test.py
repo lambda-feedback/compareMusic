@@ -1,6 +1,13 @@
 import unittest
-
 from .evaluation import Params, evaluation_function
+import json
+
+with open("./data/referenceMIDI.json") as f:
+    reference = json.load(f)
+
+with open("./data/learnerMIDI.json") as f:
+    learner = json.load(f)
+
 
 class TestEvaluationFunction(unittest.TestCase):
     """
@@ -22,9 +29,5 @@ class TestEvaluationFunction(unittest.TestCase):
     """
 
     def test_evaluation(self):
-        response, answer, params = "Hello, World", "Hello, World", Params()
-
-        result = evaluation_function(response, answer, params).to_dict()
-
-        self.assertEqual(result.get("is_correct"), True)
-        self.assertFalse(result.get("feedback", False))
+        result = evaluation_function(learner, reference, Params()).to_dict()
+        self.assertFalse(result["is_correct"])

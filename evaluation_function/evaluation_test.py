@@ -31,3 +31,4 @@ class TestEvaluationFunction(unittest.TestCase):
     def test_evaluation(self):
         result = evaluation_function(learner, reference, Params()).to_dict()
         self.assertFalse(result["is_correct"])
+        

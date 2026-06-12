@@ -3,78 +3,78 @@ from lf_toolkit.evaluation import Result, Params
 import difflib
 
 
-def basic_comparison(learnerMIDI, 
+def basic_comparison(responseMIDI, 
                      refMIDI, 
                      timing_tolerance = 0.1, 
                      duration_tolerance = 0.1):
     """
-    Compares learner's MIDI notes with reference MIDI notes,
+    Compares student's response MIDI notes with reference MIDI notes,
     based on pitch, timing, and duration with specified tolerances.
     Args:
         refMIDI: The reference MIDI note.
-        learnerMIDI: The learner's MIDI note to evaluate.
+        responseMIDI: The student's response MIDI note to evaluate.
         timing_tolerance: consider as correct if start is within this tolerance.
         duration_tolerance: consider as correct if duration is within this tolerance.
     Returns:
         bool: True if the notes match within the specified tolerances, False otherwise.
     """
     ref_notes = refMIDI["notes"]
-    learner_notes = learnerMIDI["notes"]
+    response_notes = responseMIDI["notes"]
 
-    feedbacks = []
+    feedback = []
     all_correct = True
     
-    # match the pitches to find if the learner play extra or missing notes during practice
+    # match the pitches to find if the student play extra or missing notes during practice
     ref_pitches = [note["pitch"] for note in ref_notes]
-    learner_pitches = [note["pitch"] for note in learner_notes]
-    pitch_similarity = difflib.SequenceMatcher(None, ref_pitches, learner_pitches)
+    response_pitches = [note["pitch"] for note in response_notes]
+    pitch_similarity = difflib.SequenceMatcher(None, ref_pitches, response_pitches)
 
-    for op, ref_start, ref_end, learner_start, learner_end in pitch_similarity.get_opcodes():
+    for op, ref_start, ref_end, response_start, response_end in pitch_similarity.get_opcodes():
 
         # if the pitches are the same, then check the timing and duration
         if op == 'equal': 
             for i in range(ref_end - ref_start):
                 ref_note = ref_notes[ref_start + i]
-                learner_note = learner_notes[learner_start + i]
+                response_note = response_notes[response_start + i]
 
-                timing_difference = abs(ref_note["start"] - learner_note["start"])
-                duration_difference = abs(ref_note["duration"] - learner_note["duration"])
+                timing_difference = abs(ref_note["start"] - response_note["start"])
+                duration_difference = abs(ref_note["duration"] - response_note["duration"])
                 timing_match = timing_difference <= timing_tolerance
                 duration_match = duration_difference <= duration_tolerance
 
                 if timing_match and duration_match:
-                    feedbacks.append(
+                    feedback.append(
                         f"Note {ref_start+i+1} with pitch {ref_note['pitch']} is correct.")
                 else:
                     all_correct = False
                     if not timing_match:
-                        feedbacks.append(f"Note {ref_start+i+1}: difference in start time: {timing_difference:.2f}s.")
+                        feedback.append(f"Note {ref_start+i+1}: difference in start time: {timing_difference:.2f}s.")
                     if not duration_match:
-                        feedbacks.append(f"Note {ref_start+i+1}: difference in duration: {duration_difference:.2f}s.")
+                        feedback.append(f"Note {ref_start+i+1}: difference in duration: {duration_difference:.2f}s.")
 
         # if the pitches are different, then check which pitch is wrong and give feedback
         elif op == 'replace':
             all_correct = False
             for i in range(ref_end - ref_start):
                 ref_note = ref_notes[ref_start + i]
-                learner_note = learner_notes[learner_start + i]
-                feedbacks.append(f"Note {ref_start+i+1} is wrong: expected {ref_note['pitch']}, but played {learner_note['pitch']}.")
+                response_note = response_notes[response_start + i]
+                feedback.append(f"Note {ref_start+i+1} is wrong: expected {ref_note['pitch']}, but played {response_note['pitch']}.")
 
         # if some notes are missing, then give feedback about which notes are missing     
         elif op == 'delete':
             all_correct = False
             for i in range(ref_end - ref_start):
                 ref_note = ref_notes[ref_start + i]
-                feedbacks.append(f"Note {ref_start+i+1} with pitch {ref_note['pitch']} is missing in your performance.")
+                feedback.append(f"Note {ref_start+i+1} with pitch {ref_note['pitch']} is missing in your performance.")
 
         # if some extra notes are played, then give feedback about which extra notes are played
         elif op == 'insert':
             all_correct = False
-            for i in range(learner_end - learner_start):
-                learner_note = learner_notes[learner_start + i]
-                feedbacks.append(f"You played an extra note {learner_start+i+1} with pitch {learner_note['pitch']}.")
+            for i in range(response_end - response_start):
+                response_note = response_notes[response_start + i]
+                feedback.append(f"You played an extra note {response_start+i+1} with pitch {response_note['pitch']}.")
 
-    return all_correct, feedbacks
+    return all_correct, feedback
 
 def evaluation_function(
     response: Any,
@@ -103,9 +103,9 @@ def evaluation_function(
     return types and that evaluation_function() is the main function used
     to output the evaluation response.
     """
-    all_correct, feedbacks = basic_comparison(response, answer)
+    all_correct, feedback = basic_comparison(response, answer)
 
     return Result(
     is_correct=all_correct,
-    feedback_items=[("feedback", "\n".join(feedbacks))]
+    feedback_items=[("feedback", "\n".join(feedback))]
     )

@@ -5,8 +5,8 @@ import json
 with open("./data/referenceMIDI.json") as f:
     reference = json.load(f)
 
-with open("./data/learnerMIDI.json") as f:
-    learner = json.load(f)
+with open("./data/responseMIDI.json") as f:
+    response = json.load(f)
 
 def make_midi(notes):
     return {"notes": [{"pitch": p, "start": s, "duration": d} for p, s, d in notes]}
@@ -31,7 +31,7 @@ class TestEvaluationFunction(unittest.TestCase):
     """
 
     def test_incorrect_performance(self):
-        result = evaluation_function(learner, reference, Params()).to_dict()
+        result = evaluation_function(response, reference, Params()).to_dict()
         self.assertFalse(result["is_correct"])
         self.assertIn("feedback", result)
 
@@ -42,34 +42,34 @@ class TestEvaluationFunction(unittest.TestCase):
 
     def test_wrong_pitch(self):
         ref = make_midi([(60, 0.0, 0.5)])
-        learner = make_midi([(61, 0.0, 0.5)])
-        result = evaluation_function(learner, ref, Params()).to_dict()
+        response = make_midi([(61, 0.0, 0.5)])
+        result = evaluation_function(response, ref, Params()).to_dict()
         self.assertFalse(result["is_correct"])
         self.assertIn("wrong", result["feedback"])
 
     def test_timing_out_of_tolerance(self):
         ref = make_midi([(60, 0.0, 0.5)])
-        learner = make_midi([(60, 0.5, 0.5)])   # difference of 0.5s, out of tolerance
-        result = evaluation_function(learner, ref, Params()).to_dict()
+        response = make_midi([(60, 0.5, 0.5)])   # difference of 0.5s, out of tolerance
+        result = evaluation_function(response, ref, Params()).to_dict()
         self.assertFalse(result["is_correct"])
         self.assertIn("start time", result["feedback"])
 
     def test_timing_within_tolerance(self):
         ref = make_midi([(60, 0.0, 0.5)])
-        learner = make_midi([(60, 0.05, 0.5)])  # difference of 0.05s, within tolerance
-        result = evaluation_function(learner, ref, Params()).to_dict()
+        response = make_midi([(60, 0.05, 0.5)])  # difference of 0.05s, within tolerance
+        result = evaluation_function(response, ref, Params()).to_dict()
         self.assertTrue(result["is_correct"])
 
     def test_missing_note(self):
         ref = make_midi([(60, 0.0, 0.5), (62, 0.6, 0.5)])
-        learner = make_midi([(60, 0.0, 0.5)])
-        result = evaluation_function(learner, ref, Params()).to_dict()
+        response = make_midi([(60, 0.0, 0.5)])
+        result = evaluation_function(response, ref, Params()).to_dict()
         self.assertFalse(result["is_correct"])
         self.assertIn("missing", result["feedback"])
 
     def test_extra_note(self):
         ref = make_midi([(60, 0.0, 0.5)])
-        learner = make_midi([(60, 0.0, 0.5), (64, 0.6, 0.5)])
-        result = evaluation_function(learner, ref, Params()).to_dict()
+        response = make_midi([(60, 0.0, 0.5), (64, 0.6, 0.5)])
+        result = evaluation_function(response, ref, Params()).to_dict()
         self.assertFalse(result["is_correct"])
         self.assertIn("extra", result["feedback"])

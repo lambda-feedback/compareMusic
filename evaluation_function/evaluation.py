@@ -1,9 +1,22 @@
 from typing import Any
 from lf_toolkit.evaluation import Result, Params
-import difflib
 
 
-def basic_comparison(responseMIDI, 
+def compute_cost(note1, note2):
+    """
+    Computes the cost used for Dynamic Time Warping.
+    Lower cost means the two notes are more similar.
+    """
+    pass
+
+def note_alignment_DTW(responseNotes, refNotes):
+    """
+    Use DTW to find the optimal alignment between response and reference MIDI notes.
+    """
+    pass
+
+
+def compare_notes(responseMIDI, 
                      refMIDI, 
                      timing_tolerance = 0.1, 
                      duration_tolerance = 0.1):
@@ -21,59 +34,14 @@ def basic_comparison(responseMIDI,
     ref_notes = refMIDI["notes"]
     response_notes = responseMIDI["notes"]
 
+    aligned_notes = note_alignment_DTW(response_notes, ref_notes)
+
     feedback = []
     all_correct = True
+
+    # loop over each note pair
     
-    # match the pitches to find if the student play extra or missing notes during practice
-    ref_pitches = [note["pitch"] for note in ref_notes]
-    response_pitches = [note["pitch"] for note in response_notes]
-    pitch_similarity = difflib.SequenceMatcher(None, ref_pitches, response_pitches)
-
-    for op, ref_start, ref_end, response_start, response_end in pitch_similarity.get_opcodes():
-
-        # if the pitches are the same, then check the timing and duration
-        if op == 'equal': 
-            for i in range(ref_end - ref_start):
-                ref_note = ref_notes[ref_start + i]
-                response_note = response_notes[response_start + i]
-
-                timing_difference = abs(ref_note["start"] - response_note["start"])
-                duration_difference = abs(ref_note["duration"] - response_note["duration"])
-                timing_match = timing_difference <= timing_tolerance
-                duration_match = duration_difference <= duration_tolerance
-
-                if timing_match and duration_match:
-                    feedback.append(
-                        f"Note {ref_start+i+1} with pitch {ref_note['pitch']} is correct.")
-                else:
-                    all_correct = False
-                    if not timing_match:
-                        feedback.append(f"Note {ref_start+i+1}: difference in start time: {timing_difference:.2f}s.")
-                    if not duration_match:
-                        feedback.append(f"Note {ref_start+i+1}: difference in duration: {duration_difference:.2f}s.")
-
-        # if the pitches are different, then check which pitch is wrong and give feedback
-        elif op == 'replace':
-            all_correct = False
-            for i in range(ref_end - ref_start):
-                ref_note = ref_notes[ref_start + i]
-                response_note = response_notes[response_start + i]
-                feedback.append(f"Note {ref_start+i+1} is wrong: expected {ref_note['pitch']}, but played {response_note['pitch']}.")
-
-        # if some notes are missing, then give feedback about which notes are missing     
-        elif op == 'delete':
-            all_correct = False
-            for i in range(ref_end - ref_start):
-                ref_note = ref_notes[ref_start + i]
-                feedback.append(f"Note {ref_start+i+1} with pitch {ref_note['pitch']} is missing in your performance.")
-
-        # if some extra notes are played, then give feedback about which extra notes are played
-        elif op == 'insert':
-            all_correct = False
-            for i in range(response_end - response_start):
-                response_note = response_notes[response_start + i]
-                feedback.append(f"You played an extra note {response_start+i+1} with pitch {response_note['pitch']}.")
-
+    
     return all_correct, feedback
 
 def evaluation_function(
@@ -103,7 +71,7 @@ def evaluation_function(
     return types and that evaluation_function() is the main function used
     to output the evaluation response.
     """
-    all_correct, feedback = basic_comparison(response, answer)
+    all_correct, feedback = compare_notes(response, answer)
 
     return Result(
     is_correct=all_correct,

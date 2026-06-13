@@ -1,0 +1,10 @@
+{
+  "performance_type": "reference",
+  "notes": [
+    {"pitch": 60, "start": 0.00, "duration": 0.50},
+    {"pitch": 62, "start": 0.60, "duration": 0.50},
+    {"pitch": 64, "start": 1.20, "duration": 0.50},
+    {"pitch": 65, "start": 1.80, "duration": 0.50},
+    {"pitch": 67, "start": 2.50, "duration": 0.50}
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "performance_type": "response",
+  "notes": [
+    {"pitch": 60, "start": 0.00, "duration": 0.50},
+    {"pitch": 63, "start": 0.60, "duration": 0.50},
+    {"pitch": 64, "start": 1.35, "duration": 0.50},
+    {"pitch": 65, "start": 1.80, "duration": 0.70}
+  ]
+}

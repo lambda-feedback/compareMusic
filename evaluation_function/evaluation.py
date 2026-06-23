@@ -8,9 +8,9 @@ All evaluation logic is in compare_music.py, this file is for the platform inter
 
 
 from typing import Any
-#from lf_toolkit.evaluation import Result, Params
+from lf_toolkit.evaluation import Result, Params
 
-from compare_music import (
+from compare_MIDI import (
     compare_performance_ED,
     DEFAULT_GAP_PENALTY,
     TIMING_RELATIVE_THRESHOLD,

@@ -24,7 +24,7 @@ import numpy as np
 # Gap penalty: cost of leaving a note unaligned (insertion/deletion)
 DEFAULT_GAP_PENALTY = 6
 
-# Timing: |response_start - predicted_start| / IOI must be below this.
+# Timing: |response_start - predicted_start| / Inter-Onset Interval (IOI) must be below this.
 # e.g. 0.20 means the start can be off by up to 20% of the inter-onset interval.
 TIMING_RELATIVE_THRESHOLD = 0.20
 
@@ -73,10 +73,7 @@ def identify_chord_name(notes):
     """
     Identify the chord name (e.g. "C major", "A minor") from a list of notes
     by matching their pitch class set against CHORD_TEMPLATES.
- 
-    For each candidate root in the pitch class set, normalise all pitch classes
-    to start at 0 and check against each template. If no match is found,
-    returns "unknown chord".
+    If no match is found, returns "unknown chord".
  
     Args:
         notes: list of note dicts, each with a "pitch" key.
@@ -95,20 +92,16 @@ def identify_chord_name(notes):
  
     return "unknown chord"
  
- 
 def compute_chord_accuracy(ref_notes, res_notes):
     """
-    Compute the chord accuracy score A from McLeod & Rohit (2022),
- 
+    Compute the chord accuracy score A from (Devaney, n.d.): 
     A = (C - I + |y|) / (2 * |y|)
- 
     where:
         C = |y ∩ y_hat|  (correctly played pitch classes)
-        I = |y_hat - y|  (extra pitch classes played)
+        I = |y_hat - y|  (unexpected pitch classes played)
         |y|              (number of pitch classes in the reference chord)
- 
-    A = 1.0 means perfectly correct. A = 0.0 means nothing correct and
-    many extra notes are played.
+    A = 1.0 means perfectly correct. 
+    A = 0.0 means nothing correct and many unexpected notes are played.
  
     Args:
         ref_notes: list of note dicts for the reference chord.
@@ -118,7 +111,7 @@ def compute_chord_accuracy(ref_notes, res_notes):
         accuracy: float in [0, 1]
         correct_pitches: sorted list of pitch class ints in both chords
         missing_pitches: sorted list of pitch class ints in ref
-        extra_pitches:sorted list of pitch class ints in response
+        extra_pitches: sorted list of pitch class ints in response
     """
     ref_pcs = get_pitch_class_set(ref_notes)
     res_pcs = get_pitch_class_set(res_notes)
@@ -226,7 +219,7 @@ def group_notes_into_events(notes, chord_onset_window=DEFAULT_CHORD_ONSET_WINDOW
     if len(notes) == 0:
         return []
 
-    # Sort notes by start time first
+    # make sure notes are sorted by start time first
     sorted_notes = sorted(notes, key=lambda n: n["start"])
 
     events = []
@@ -335,6 +328,13 @@ def event_alignment_ED(response_events, ref_events, gap_penalty=DEFAULT_GAP_PENA
             'cost': int}
         D: accumulated cost matrix, shape (N+1, M+1)
     """
+    # if a raw note dict with "pitch"/"start"/"duration" but no "event_type" is
+    # passed in, group them into events first. 
+    if "event_type" not in response_events[0]:
+        response_events = group_notes_into_events(response_events)
+    if "event_type" not in ref_events[0]:
+        ref_events = group_notes_into_events(ref_events)
+
     # the rows of D correspond to response events
     N = len(response_events)
     # the columns of D correspond to reference events

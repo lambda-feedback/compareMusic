@@ -17,6 +17,7 @@ from .compare_MIDI import (
     DURATION_RELATIVE_THRESHOLD,
     GLOBAL_SLOW_THRESHOLD,
     GLOBAL_FAST_THRESHOLD,
+    DEFAULT_CHORD_ONSET_WINDOW
 )
 
 
@@ -66,6 +67,9 @@ def evaluation_function(
         global_fast_threshold=params.get(
             "global_fast_threshold", GLOBAL_FAST_THRESHOLD
         ),
+        chord_onset_window=params.get(
+            "chord_onset_window", DEFAULT_CHORD_ONSET_WINDOW
+        )
     )
 
     return {

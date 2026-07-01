@@ -39,6 +39,10 @@ GLOBAL_FAST_THRESHOLD = 0.85   # timing_scale < 0.85  -> "overall too fast"
 # Default threshold: notes starting within 50ms are grouped as one chord.
 DEFAULT_CHORD_ONSET_WINDOW = 0.05
 
+# Default window for broken/arpeggiated chord detection.
+# Notes spanning less than this threshold may be merged into a single chord event.
+DEFAULT_ARPEGGIATE_WINDOW = 0.30
+
 # template and helper functions for chords
 # ------------------------------------------------------------------------------
 # Chord template dictionary.
@@ -200,10 +204,13 @@ def make_event(notes_in_group):
 # group notes into events based on their start times
 def group_notes_into_events(notes, chord_onset_window=DEFAULT_CHORD_ONSET_WINDOW):
     """
-    Group a flat list of notes into events. Notes whose start times fall
-    within chord_onset_window seconds of each other are placed into the
-    same event (i.e. treated as a chord). Notes that are not grouped with
+    group notes whose start times fall within chord_onset_window seconds of 
+    each other into a single chord event. Notes that are not grouped with 
     any other note form a single-note event.
+ 
+    This is the block-chord detection step. It is called internally by
+    group_ref_notes_into_events and group_response_notes_into_events before
+    their respective broken-chord logic runs.
 
     Args:
         notes: list of dicts, each with keys 'pitch', 'start', 'duration'
@@ -242,6 +249,74 @@ def group_notes_into_events(notes, chord_onset_window=DEFAULT_CHORD_ONSET_WINDOW
     events.append(last_event)
 
     return events
+
+def group_ref_notes_into_events(ref_notes,
+                                 chord_onset_window=DEFAULT_CHORD_ONSET_WINDOW,
+                                 arpeggiate_window=DEFAULT_ARPEGGIATE_WINDOW):
+    """
+    Step 1 -- block chord detection (chord_onset_window, default 50ms):
+        Notes whose start times fall within chord_onset_window of the first
+        note in the current group are placed into the same chord event.
+ 
+    Step 2 -- broken chord detection (arpeggiate_window, default 300ms):
+        A candidate group of consecutive notes is merged into a chord event
+        when ALL of the following hold:
+          (a) The time span from the first to the last note is within
+              arpeggiate_window.
+          (b) The combined pitch class set of the candidate group exactly
+              matches a triad template in CHORD_TEMPLATES (any root).
+ 
+    Args:
+        ref_notes: list of note dicts with keys 'pitch', 'start', 'duration'.
+        chord_onset_window: float (seconds), Step 1 window. Default 50ms.
+        arpeggiate_window: float (seconds), Step 2 window. Default 300ms.
+            Teachers can override via the params dict.
+ 
+    Returns:
+        list of event dicts (see make_event() for format).
+    """
+    # block chord detection
+    initial_grouped_events = group_notes_into_events(ref_notes, chord_onset_window)
+ 
+    
+    result_events = []
+    
+    return result_events
+ 
+ 
+def group_response_notes_into_events(response_notes, ref_events,
+                                      chord_onset_window=DEFAULT_CHORD_ONSET_WINDOW,
+                                      arpeggiate_window=DEFAULT_ARPEGGIATE_WINDOW):
+    """
+    Step 1 -- block chord detection (chord_onset_window, default 50ms):
+        Same as group_ref_notes_into_events Step 1.
+
+    Step 2 -- broken chord detection (arpeggiate_window, default 300ms):
+        Remaining single-note events are scanned with a sliding window.
+        A candidate group of consecutive notes is merged when ALL of:
+          (a) The time span from the first to the last note is within
+              arpeggiate_window.
+          (b) The number of notes in the candidate group does not exceed
+              the size of the largest chord in ref_events (max_ref_chord_size).
+        If no prefix of length >= 2 qualifies, each note stays as-is.
+
+    Args:
+        response_notes: list of note dicts with keys 'pitch', 'start', 'duration'.
+        ref_events: list of event dicts from group_ref_notes_into_events().
+            Used only to compute max_ref_chord_size.
+        chord_onset_window: float (seconds), Step 1 window. Default 50ms.
+        arpeggiate_window: float (seconds), Step 2 window. Default 300ms.
+            Teachers can override via the params dict.
+ 
+    Returns:
+        list of event dicts (see make_event() for format).
+    """
+    # Step 1: block chord detection
+    initial_grouped_events = group_notes_into_events(response_notes, chord_onset_window)
+ 
+    result_events = []
+ 
+    return result_events
 
 
 # Step 1 -- edit-distance alignment to identify missing/extra notes and pitch errors

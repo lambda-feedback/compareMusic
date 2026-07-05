@@ -552,3 +552,85 @@ class TestParamOverrides(unittest.TestCase):
         result_narrow = compare_performance_ED(res, ref, chord_onset_window=0.05)
         assert result_wide.stats["total_chords_in_reference"] == 1
         assert result_narrow.stats["total_notes_in_reference"] == 2
+
+
+# 10. Bulk tests using longer MIDI sequences, which are more realistic 
+# ------------------------------------------------------------------------------
+# Test cases live in longMIDIsequence.json, not hardcoded here.
+# To add a new scenario: add a new dict to the "test_cases" list in that
+# JSON file (with "name", "category", "reference", "response", "expected").
+#
+# Scenarios currently covered:
+#   perfect performance; scattered errors across full melody
+#   correct; one of a pair missing; extra double-struck note
+#   single mid-phrase pause; pause combined with missing note
+#   long break with no notes lost; long break with a skip
+import json
+import os
+import pytest
+
+this_file = os.path.abspath(__file__)
+this_dir  = os.path.dirname(this_file)           # evaluation_function/
+root_dir  = os.path.dirname(this_dir)            # compareMusic/
+path = os.path.join(root_dir, "data", "longMIDIsequence.json")
+
+with open(path, "r") as json_file:
+    REALISTIC_TEST_DATA = json.load(json_file)
+ 
+REALISTIC_TEST_CASES = REALISTIC_TEST_DATA["test_cases"]
+REALISTIC_TEST_IDS = [case["name"] for case in REALISTIC_TEST_CASES]
+
+@pytest.mark.parametrize("case", REALISTIC_TEST_CASES, ids=REALISTIC_TEST_IDS)
+def test_realistic_scenario(case):
+    """
+    Run one realistic scenario through the full pipeline and check the
+    values in result.stats (and event_details, for timing checks) against
+    the "expected" section of the JSON test case. Only fields present in
+    "expected" are checked, since different scenarios check different things.
+    """
+    reference_midi = case["reference"]
+    response_midi = case["response"]
+    expected = case["expected"]
+ 
+    result = compare_performance_ED(response_midi, reference_midi)
+    stats = result.stats
+ 
+    # ---- Note-level checks ----
+    if "missing_notes" in expected:
+        assert stats["total_notes_missing"] == expected["missing_notes"]
+ 
+    if "extra_notes" in expected:
+        assert stats["total_notes_extra"] == expected["extra_notes"]
+ 
+    if "wrong_pitch_notes" in expected:
+        assert stats["total_notes_wrong_pitch"] == expected["wrong_pitch_notes"]
+ 
+    # ---- Chord-level checks ----
+    if "chord_correct" in expected:
+        if expected["chord_correct"]:
+            assert stats["total_chords_in_reference"] > 0
+            assert stats["total_chords_correct"] == stats["total_chords_in_reference"]
+        else:
+            assert stats["total_chords_correct"] < stats["total_chords_in_reference"]
+ 
+    if expected.get("chord_partial_match"):
+        assert stats["total_chords_imperfect"] >= 1
+ 
+    if "chord_missing" in expected:
+        assert stats["total_chords_missing"] == expected["chord_missing"]
+ 
+    # ---- Timing deviation checks ----
+    # "large_timing_deviation_note_index" points at the reference_index of the
+    # note that should be flagged with a large local timing error (e.g. the
+    # note right after a hesitation or a long break).
+    if "large_timing_deviation_note_index" in expected:
+        flagged_index = expected["large_timing_deviation_note_index"]
+        matching_notes = [
+            note for note in result.event_details
+            if note["event_type"] == "note"
+            and note.get("reference_index") == flagged_index
+        ]
+        assert len(matching_notes) == 1
+        flagged_note = matching_notes[0]
+        assert flagged_note["timing_correct"] is False
+ 

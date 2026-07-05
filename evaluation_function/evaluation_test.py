@@ -565,17 +565,14 @@ class TestParamOverrides(unittest.TestCase):
 #   correct; one of a pair missing; extra double-struck note
 #   single mid-phrase pause; pause combined with missing note
 #   long break with no notes lost; long break with a skip
-
-# Load realistic scenario test cases from the JSON file.
-# Path is relative to this test file, not the current working directory,
-# so the tests work no matter where pytest is run from.
 import json
 import os
 import pytest
 
-cwd = os.getcwd()
-dir = os.path.dirname(cwd)
-path = os.path.join(dir, "data", "longMIDIsequence.json")
+this_file = os.path.abspath(__file__)
+this_dir  = os.path.dirname(this_file)           # evaluation_function/
+root_dir  = os.path.dirname(this_dir)            # compareMusic/
+path = os.path.join(root_dir, "data", "longMIDIsequence.json")
 
 with open(path, "r") as json_file:
     REALISTIC_TEST_DATA = json.load(json_file)

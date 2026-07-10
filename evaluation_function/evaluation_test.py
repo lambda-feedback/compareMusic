@@ -92,26 +92,80 @@ class TestChordHelpers(unittest.TestCase):
         res = [{"pitch": 60}, {"pitch": 64}, {"pitch": 67}]
         accuracy, correct, missing, extra = compute_chord_accuracy(ref, res)
         assert accuracy == 1.0
+        assert correct == [60, 64, 67]
         assert missing == []
         assert extra == []
- 
+
     def test_completely_wrong_notes(self):
         # Response has no overlap with reference
         ref = [{"pitch": 60}, {"pitch": 64}, {"pitch": 67}]
         res = [{"pitch": 61}, {"pitch": 65}, {"pitch": 69}]
         accuracy, correct, missing, extra = compute_chord_accuracy(ref, res)
         assert accuracy == 0.0
-        assert len(correct) == 0
- 
+        assert correct == []
+
     def test_partial_match_returns_score_between_0_and_1(self):
-        # C major ref (0,4,7) vs C-minor response (0,3,7) -- one note off
+        # One note off: E4 (64) replaced by D#4 (63)
         ref = [{"pitch": 60}, {"pitch": 64}, {"pitch": 67}]
         res = [{"pitch": 60}, {"pitch": 63}, {"pitch": 67}]
         accuracy, correct, missing, extra = compute_chord_accuracy(ref, res)
         assert 0.0 < accuracy < 1.0
-        assert len(correct) == 2
-        assert 4 in missing   # pitch class 4 (E) is missing
-        assert 3 in extra     # pitch class 3 (D#) is extra
+        assert correct == [60, 67]
+        assert missing == [64]  # the actual MIDI pitch of the missing note (E4)
+        assert extra == [63]    # the actual MIDI pitch of the extra note (D#4)
+
+    def test_octave_doubling_matches_when_both_sides_double(self):
+        # Both reference and response double the root an octave up
+        # (C4=60 and C5=72) -- since we compare actual MIDI pitch, both
+        # copies match individually, no pitch-class merging involved.
+        ref = [{"pitch": 60}, {"pitch": 72}, {"pitch": 64}, {"pitch": 67}]
+        res = [{"pitch": 60}, {"pitch": 72}, {"pitch": 64}, {"pitch": 67}]
+        accuracy, correct, missing, extra = compute_chord_accuracy(ref, res)
+        assert accuracy == 1.0
+        assert correct == [60, 64, 67, 72]
+        assert missing == []
+        assert extra == []
+
+    def test_extra_octave_doubled_note_is_flagged(self):
+        # Reference has a single root note; performer adds an extra
+        # octave-doubled copy (C5=72) that was never asked for. Because we
+        # compare actual MIDI pitch (not pitch class), 72 is simply a
+        # pitch that is not in the reference -- no special-casing needed.
+        ref = [{"pitch": 60}, {"pitch": 64}, {"pitch": 67}]         # C4, E4, G4
+        res = [{"pitch": 60}, {"pitch": 72}, {"pitch": 64}, {"pitch": 67}]  # + extra C5
+        accuracy, correct, missing, extra = compute_chord_accuracy(ref, res)
+        assert extra == [72]
+        assert correct == [60, 64, 67]
+
+    def test_missing_octave_doubled_note_is_detected(self):
+        # Reference doubles the root (C4=60 and C5=72); performer only
+        # plays C4, dropping the C5. Since MIDI pitch (not pitch class) is
+        # compared, 72 simply never appears in the response, so it is
+        # correctly flagged as missing -- and this now also lowers the
+        # accuracy score itself (unlike the original pitch-class-only
+        # definition, which would consider {0, 7} == {0, 7} and hide this).
+        ref = [{"pitch": 60}, {"pitch": 72}, {"pitch": 67}]  # C4, C5, G4
+        res = [{"pitch": 60}, {"pitch": 67}]                 # C4, G4 only
+        accuracy, correct, missing, extra = compute_chord_accuracy(ref, res)
+        assert accuracy == 5 / 6   # C=2, I=0, |y|=3 -> (2-0+3)/6
+        assert correct == [60, 67]
+        assert missing == [72]
+        assert extra == []
+
+    def test_missing_exact_duplicate_pitch_is_detected(self):
+        # Reference has the EXACT same MIDI pitch twice (e.g. a fast
+        # repeated note landing in the same onset window as other notes),
+        # not just an octave doubling. A plain set comparison would merge
+        # both copies of 60 into one and hide a dropped repeat; the
+        # Counter-based multiset matching below must catch it.
+        ref = [{"pitch": 60}, {"pitch": 60}, {"pitch": 67}]  # C4, C4 (repeat), G4
+        res = [{"pitch": 60}, {"pitch": 67}]                 # only one C4 played
+        accuracy, correct, missing, extra = compute_chord_accuracy(ref, res)
+        assert accuracy == 5 / 6   # C=2, I=0, |y|=3 -> (2-0+3)/6
+        assert correct == [60, 67]
+        assert missing == [60]     # the dropped repeat, not merged away
+        assert extra == []
+
 
 
 # 2. Tests for normalize_start_times
@@ -633,4 +687,3 @@ def test_realistic_scenario(case):
         assert len(matching_notes) == 1
         flagged_note = matching_notes[0]
         assert flagged_note["timing_correct"] is False
- 

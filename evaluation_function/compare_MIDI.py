@@ -17,6 +17,7 @@ Pipeline overview (called in order by compare_performance_ED):
 
 
 import numpy as np
+from collections import Counter
 
 # Default thresholds / parameters
 # Teachers can override any of these via the params dict in evaluation_function.
@@ -94,12 +95,14 @@ def identify_chord_name(notes):
  
 def compute_chord_accuracy(ref_notes, res_notes):
     """
-    Compute the chord accuracy score A from (Devaney, n.d.): 
+    Compute the chord accuracy score A (modified Devaney's method), but
+    use the actual MIDI pitch (with octave) instead of pitch class, 
+    so that the score is sensitive to octave errors.: 
     A = (C - I + |y|) / (2 * |y|)
     where:
-        C = |y ∩ y_hat|  (correctly played pitch classes)
-        I = |y_hat - y|  (unexpected pitch classes played)
-        |y|              (number of pitch classes in the reference chord)
+        C = number of correctly matched notes
+        I = number of extra notes
+        |y| = number of notes in the reference chord
     A = 1.0 means perfectly correct. 
     A = 0.0 means nothing correct and many unexpected notes are played.
  
@@ -109,28 +112,43 @@ def compute_chord_accuracy(ref_notes, res_notes):
  
     Returns:
         accuracy: float in [0, 1]
-        correct_pitches: sorted list of pitch class ints in both chords
-        missing_pitches: sorted list of pitch class ints in ref
-        extra_pitches: sorted list of pitch class ints in response
+        correct_pitches: sorted list of matched MIDI pitches
+        missing_pitches: sorted list of missing MIDI pitches
+        extra_pitches: sorted list of extra MIDI pitches
     """
-    ref_pcs = get_pitch_class_set(ref_notes)
-    res_pcs = get_pitch_class_set(res_notes)
- 
-    correct_pcs = ref_pcs & res_pcs
-    missing_pcs = ref_pcs - res_pcs
-    extra_pcs   = res_pcs - ref_pcs
- 
-    C = len(correct_pcs)
-    I = len(extra_pcs)
-    ref_size = len(ref_pcs)
- 
+    ref_counts = Counter(note["pitch"] for note in ref_notes)
+    res_counts = Counter(note["pitch"] for note in res_notes)
+
+    correct_pitches = []
+    missing_pitches = []
+    extra_pitches = []
+
+    # For every distinct pitch on either side, match up copies one-to-one.
+    # Any leftover ref copies are missing; any leftover res copies are extra.
+    all_pitches = sorted(set(ref_counts) | set(res_counts))
+    for pitch in all_pitches:
+        matched = min(ref_counts[pitch], res_counts[pitch])
+        correct_pitches.extend([pitch] * matched)
+        if ref_counts[pitch] > matched:
+            missing_pitches.extend(
+                [pitch] * (ref_counts[pitch] - matched)
+            )
+        if res_counts[pitch] > matched:
+            extra_pitches.extend(
+                [pitch] * (res_counts[pitch] - matched)
+            )
+
+    C = len(correct_pitches)
+    I = len(extra_pitches)
+    ref_size = len(ref_notes)   # total note count, repeats included
+
     if ref_size == 0:
         accuracy = 0.0
     else:
         accuracy = (C - I + ref_size) / (2.0 * ref_size)
         accuracy = max(0.0, min(1.0, accuracy))
- 
-    return accuracy, sorted(correct_pcs), sorted(missing_pcs), sorted(extra_pcs)
+
+    return accuracy, correct_pitches, missing_pitches, extra_pitches
 
 
 # Step 0 - make first note start at t = 0.0
@@ -1006,10 +1024,10 @@ def generate_feedback_message(event_details, response_events, ref_events, stats,
                 f"{accuracy_pct}% accurate. "
             )
             if ch["missing_pitches"]:
-                missing_names = [PITCH_CLASS_NAMES[pc] for pc in ch["missing_pitches"]]
+                missing_names = [PITCH_CLASS_NAMES[pitch % 12] for pitch in ch["missing_pitches"]]
                 message = message + "Missing note(s): " + ", ".join(missing_names) + ". "
             if ch["extra_pitches"]:
-                extra_names = [PITCH_CLASS_NAMES[pc] for pc in ch["extra_pitches"]]
+                extra_names = [PITCH_CLASS_NAMES[pitch % 12] for pitch in ch["extra_pitches"]]
                 message = message + "Extra note(s) played: " + ", ".join(extra_names) + "."
             chord_detail_messages.append(message)
     # Local timing errors for chords

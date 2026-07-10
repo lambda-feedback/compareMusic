@@ -264,86 +264,89 @@ def group_notes_into_events(notes, chord_onset_window=DEFAULT_CHORD_ONSET_WINDOW
 
 # Step 1 -- edit-distance alignment to identify missing/extra notes and pitch errors
 # ------------------------------------------------------------------------------
-def compute_note_cost(note1, note2):
+def build_cost_matrix(response_events, ref_events, gap_penalty=DEFAULT_GAP_PENALTY):
     """
-    Cost of aligning (replacing) one note with another, based on pitch.
- 
-    cost = 0: pitches are identical (a 'match'). 
-    cost > 0: different pitches (a 'replacement')
- 
-    Args:
-        note1: dict with keys "pitch" (int), "start" (float), "duration" (float)
-        note2: dict with keys "pitch" (int), "start" (float), "duration" (float)
- 
-    Returns:
-        int: cost value >= 0 (lower means more similar pitch)
-    """
-    return int(abs(note1["pitch"] - note2["pitch"]))
+    Precompute the full (N x M) event-alignment cost matrix using vectorised
+    NumPy broadcasting, instead of compute event cost one at a
+    time inside a Python loop. This also removes the redundant cost
+    computation that used to happen a second time during backtracking.
 
-
-def compute_event_cost(event1, event2, gap_penalty=DEFAULT_GAP_PENALTY):
-    """
-    Cost of aligning (substituting) one event with another.
- 
-    Rules:
-      - note vs note: absolute pitch difference 
-      - chord vs chord: Hamming distance on 12-dim pitch class binary vectors
-      - note vs chord (type mismatch): return gap_penalty so the aligner
-        treats them as unaligned (insertion + deletion is preferred)
- 
-    For chord vs chord, the Hamming distance counts how many of the 12
-    pitch classes differ between the two chords (symmetric difference size).
- 
     Args:
-        event1: event dict (from group_notes_into_events)
-        event2: event dict (from group_notes_into_events)
-        gap_penalty: cost of an unaligned event; used as the type-mismatch cost
- 
+        response_events: list of event dicts (from group_notes_into_events)
+        ref_events: list of event dicts (from group_notes_into_events)
+        gap_penalty: cost used when event types (note vs chord) do not match
+
     Returns:
-        int: alignment cost >= 0
+        numpy array of shape (N, M): cost of aligning each response event
+        to each reference event.
     """
-    type1 = event1["event_type"]
-    type2 = event2["event_type"]
- 
-    # Type mismatch: note vs chord or chord vs note.
-    # Return gap_penalty so alignment prefers to leave them unmatched.
-    if type1 != type2:
-        return gap_penalty
- 
-    # Both are single notes: use pitch difference (same as Phase 1)
-    elif type1 == "note" and type2 == "note":
-        return compute_note_cost(event1["notes"][0], event2["notes"][0])
- 
-    # Both are chords: Hamming distance on 12-dimensional pitch class vectors.
-    # i.e. count how many of the 12 pitch classes differ between the two chords.
-    else:
-        vec1 = [0] * 12
-        vec2 = [0] * 12
-        for note in event1["notes"]:
-            vec1[note["pitch"] % 12] = 1
-        for note in event2["notes"]:
-            vec2[note["pitch"] % 12] = 1
-        hamming = sum(1 for i in range(12) if vec1[i] != vec2[i])
-        return hamming
+    N = len(response_events)
+    M = len(ref_events)
+
+    # Build simple per-event arrays: is this event a chord, and (if it is a
+    # single note) what is its pitch.
+    res_is_chord = np.array([event["event_type"] == "chord" for event in response_events])
+    ref_is_chord = np.array([event["event_type"] == "chord" for event in ref_events])
+
+    res_pitch = np.array([
+        event["notes"][0]["pitch"] if event["event_type"] == "note" else 0
+        for event in response_events
+    ])
+    ref_pitch = np.array([
+        event["notes"][0]["pitch"] if event["event_type"] == "note" else 0
+        for event in ref_events
+    ])
+
+    # Note-vs-note cost: vectorised absolute pitch difference for every pair.
+    # Shape (N, 1) - shape (1, M) broadcasts to (N, M)
+    note_cost_matrix = np.abs(res_pitch.reshape(N, 1) - ref_pitch.reshape(1, M))
+
+    # Chord-vs-chord cost: build a 12-dim binary pitch-class vector per chord,
+    # then compute Hamming distance for every pair using broadcasting.
+    res_pitch_vector = np.zeros((N, 12), dtype=int)
+    for i in range(N):
+        if res_is_chord[i]:
+            for note in response_events[i]["notes"]:
+                res_pitch_vector[i, note["pitch"] % 12] = 1
+
+    ref_pitch_vector = np.zeros((M, 12), dtype=int)
+    for j in range(M):
+        if ref_is_chord[j]:
+            for note in ref_events[j]["notes"]:
+                ref_pitch_vector[j, note["pitch"] % 12] = 1
+
+    # (N, 1, 12) vs (1, M, 12) broadcasts to (N, M, 12); summing the last
+    # axis gives the Hamming distance for every (response, ref) pair at once.
+    differs = res_pitch_vector.reshape(N, 1, 12) != ref_pitch_vector.reshape(1, M, 12)
+    chord_cost_matrix = differs.sum(axis=2)
+
+    # Type-mismatch mask: True where one side is a note and the other a chord.
+    type_mismatch = res_is_chord.reshape(N, 1) != ref_is_chord.reshape(1, M)
+    both_chords = res_is_chord.reshape(N, 1) & ref_is_chord.reshape(1, M)
+
+    # Combine the three cases -- np.where(condition, true, false)
+    cost_matrix = np.where(
+        type_mismatch,
+        gap_penalty,
+        np.where(both_chords, chord_cost_matrix, note_cost_matrix),
+    )
+
+    return cost_matrix.astype(int)
 
 
 def event_alignment_ED(response_events, ref_events, gap_penalty=DEFAULT_GAP_PENALTY):
     """
-    Align events (notes or chords) using edit distance (ED). 
-    The ED allows for insertions and deletions, which can be useful for 
-    evaluating musical practice containing missing/extra notes.
-    
+    Same algorithm as the production event_alignment_ED(), but the N x M
+    substitution costs are looked up from a precomputed cost matrix instead
+    of being recomputed on every DP cell and again during backtracking.
+
     Args:
         response_events: list of event dicts from group_notes_into_events
         ref_events: list of event dicts from group_notes_into_events
         gap_penalty: cost of leaving an event unaligned (insertion/deletion)
- 
+
     Returns:
-        operations: list of transformation ops dicts, in order from first event to last:
-            {'type': 'match' or 'replacement' or 'missing' or 'extra', 
-            'response_idx': int or None, 
-            'reference_idx': int or None, 
-            'cost': int}
+        operations: list of operation dicts, same format as event_alignment_ED()
         D: accumulated cost matrix, shape (N+1, M+1)
     """
     # if a raw note dict with "pitch"/"start"/"duration" but no "event_type" is
@@ -358,6 +361,9 @@ def event_alignment_ED(response_events, ref_events, gap_penalty=DEFAULT_GAP_PENA
     # the columns of D correspond to reference events
     M = len(ref_events)
 
+    # Precompute every substitution cost once
+    cost_matrix = build_cost_matrix(response_events, ref_events, gap_penalty)
+
     # Build the accumulated cost matrix D of size (N+1 x M+1)
     D = np.zeros((N + 1, M + 1), dtype=int)
     
@@ -371,7 +377,7 @@ def event_alignment_ED(response_events, ref_events, gap_penalty=DEFAULT_GAP_PENA
     # Recursion (accumulated cost / score matrix D):
     for n in range(1, N + 1):
         for m in range(1, M + 1):
-            replace_cost = compute_event_cost(response_events[n-1], ref_events[m-1], gap_penalty)
+            replace_cost = cost_matrix[n - 1, m - 1]
             D[n, m] = min(
                 D[n-1, m-1] + replace_cost, # diagonal: match or replacement
                 D[n-1, m] + gap_penalty, # vertical: extra event response[n-1]
@@ -404,11 +410,11 @@ def event_alignment_ED(response_events, ref_events, gap_penalty=DEFAULT_GAP_PENA
             n -= 1
         # For all other cases, we can move in any direction (diagonal, vertical, horizontal)
         else:
-            replace_cost = compute_event_cost(response_events[n - 1], ref_events[m - 1], gap_penalty)
-            diag = D[n - 1, m - 1] + replace_cost # diagonal: match or replacement
-            up = D[n - 1, m] + gap_penalty # vertical: extra event response[n-1]
-            left = D[n, m - 1] + gap_penalty # horizontal: missing response for ref[m-1]
-            min_cost = min(diag, up, left) # find the minimum cost step
+            replace_cost = cost_matrix[n - 1, m - 1]
+            diag = D[n - 1, m - 1] + replace_cost # Diagonal -> match or replacement
+            up = D[n - 1, m] + gap_penalty # Vertical -> response[n-1] is extra (insertion)
+            left = D[n, m - 1] + gap_penalty # Horizontal -> response is missing for ref[m-1] (deletion)
+            min_cost = min(diag, up, left) 
 
             # classify the transformation ops based on the minimum cost step
             # rule: always prefer diagonal > insertion or deletion
@@ -417,7 +423,7 @@ def event_alignment_ED(response_events, ref_events, gap_penalty=DEFAULT_GAP_PENA
                     "type": "match" if replace_cost == 0 else "replacement",
                     "response_idx": n - 1,
                     "reference_idx": m - 1,
-                    "cost": replace_cost,
+                    "cost": int(replace_cost),
                 })
                 n, m = n - 1, m - 1
             elif min_cost == up: # Vertical -> response[n-1] is extra (insertion)
@@ -437,7 +443,7 @@ def event_alignment_ED(response_events, ref_events, gap_penalty=DEFAULT_GAP_PENA
                 })
                 m -= 1
 
-    operations.reverse()  # Reverse to get ops in order from first note to last
+    operations.reverse()
     return operations, D
 
 

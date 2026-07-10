@@ -26,8 +26,7 @@ from .compare_MIDI import (
     normalize_start_times,
     group_notes_into_events,
     make_event,
-    compute_note_cost,
-    compute_event_cost,
+    build_cost_matrix,
     get_pitch_class_set,
     identify_chord_name,
     compute_chord_accuracy,
@@ -45,6 +44,7 @@ from .compare_MIDI import (
     DEFAULT_CHORD_ONSET_WINDOW,
 )
 from .evaluation import evaluation_function
+
 
 # 0. Helper: create a minimal MIDI dictionary for testing
 # ------------------------------------------------------------------------------
@@ -248,28 +248,46 @@ class TestGroupNotesIntoEvents(unittest.TestCase):
         assert len(events) == 2
 
 
-# 4. Tests for compute_note_cost and compute_event_cost
+# 4. Tests for build_cost_matrix
 # ------------------------------------------------------------------------------
 class TestCostComputations(unittest.TestCase):
-
+    # compute_event_cost (single event-pair cost) was folded into
+    # build_cost_matrix (whole-matrix, vectorised). To test a single pair,
+    # just pass a 1-event list on each side and read the [0, 0] cell.
+ 
     def test_note_vs_note_different_pitch(self):
         e1 = make_event(make_midi([60], [0.0], [0.5])["notes"])
         e2 = make_event(make_midi([65], [0.0], [0.5])["notes"])
-        assert compute_event_cost(e1, e2) == 5
-
+        cost = build_cost_matrix([e1], [e2])[0, 0]
+        assert cost == 5
+ 
     def test_chord_vs_chord_one_note_different(self):
         # C major (0,4,7) vs C-minor (0,3,7): one pitch differs -> Hamming = 2
         e1 = make_event(make_midi([60, 64, 67], [0.0, 0.0, 0.0], [0.5, 0.5, 0.5])["notes"])
         e2 = make_event(make_midi([60, 63, 67], [0.0, 0.0, 0.0], [0.5, 0.5, 0.5])["notes"])
-        cost = compute_event_cost(e1, e2)
+        cost = build_cost_matrix([e1], [e2])[0, 0]
         assert cost == 2
  
     def test_type_mismatch_returns_gap_penalty(self):
         # note vs chord -- should return the gap_penalty regardless of pitches
         note_event  = make_event(make_midi([60], [0.0], [0.5])["notes"])
         chord_event = make_event(make_midi([60, 64], [0.0, 0.0],  [0.5, 0.5])["notes"])
-        cost = compute_event_cost(note_event, chord_event, gap_penalty=10)
+        cost = build_cost_matrix([note_event], [chord_event], gap_penalty=10)[0, 0]
         assert cost == 10
+ 
+    def test_matrix_shape_for_multiple_events(self):
+        # 2 response events x 3 reference events -> (2, 3) matrix
+        res = [
+            make_event(make_midi([60], [0.0], [0.5])["notes"]),
+            make_event(make_midi([62], [0.5], [0.5])["notes"]),
+        ]
+        ref = [
+            make_event(make_midi([60], [0.0], [0.5])["notes"]),
+            make_event(make_midi([62], [0.5], [0.5])["notes"]),
+            make_event(make_midi([64], [1.0], [0.5])["notes"]),
+        ]
+        cost_matrix = build_cost_matrix(res, ref)
+        assert cost_matrix.shape == (2, 3)
 
 
 # 5. Tests for event_alignment_ED

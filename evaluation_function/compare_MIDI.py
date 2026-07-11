@@ -168,16 +168,15 @@ def normalize_start_times(notes):
     if not notes:
         return []
  
-    first_start = notes[0]["start"]
+    # Use the earliest onset rather than assuming notes[0] is the first note.
+    first_start = min(note["start"] for note in notes)
  
     shifted_notes = []
     for note in notes:
-        # Create a copy of the note dict with the "start" time shifted
-        note_copy = {
-            "pitch": note["pitch"],
-            "start": note["start"] - first_start,
-            "duration": note["duration"],
-        }
+        # Copy the complete dictionary so that additional metadata is retained.
+        note_copy = note.copy()
+        # Only modify the copied note's start time.
+        note_copy["start"] = note["start"] - first_start
         shifted_notes.append(note_copy)
  
     return shifted_notes

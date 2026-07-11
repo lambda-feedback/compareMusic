@@ -21,6 +21,7 @@ matplotlib = "^3.11.0"
 pretty-midi = "^0.2.11"
 pandas = "^3.0.3"
 tqdm = "^4.68.4"
+partitura = "^1.9.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.2.2"

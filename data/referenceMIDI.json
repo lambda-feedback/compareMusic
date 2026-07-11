@@ -1,0 +1,30 @@
+{
+  "performance_type": "reference",
+  "notes": [
+    {
+      "pitch": 60,
+      "start": 0,
+      "duration": 0.5
+    },
+    {
+      "pitch": 62,
+      "start": 0.6,
+      "duration": 0.5
+    },
+    {
+      "pitch": 64,
+      "start": 1.2,
+      "duration": 0.5
+    },
+    {
+      "pitch": 65,
+      "start": 1.8,
+      "duration": 0.5
+    },
+    {
+      "pitch": 67,
+      "start": 2.5,
+      "duration": 0.5
+    }
+  ]
+}

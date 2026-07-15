@@ -11,7 +11,7 @@ evaluation_function = "evaluation_function.main:main"
 evaluation_function_dev = "evaluation_function.dev:dev"
 
 [tool.poetry.dependencies]
-python = "^3.11"
+python = ">=3.11,<3.12"
 typing_extensions = "^4.12.2"
 lf_toolkit = { git = "https://github.com/lambda-feedback/toolkit-python.git", branch = "main", extras = [
     "ipc",
@@ -21,6 +21,8 @@ matplotlib = "^3.11.0"
 pretty-midi = "^0.2.11"
 pandas = "^3.0.3"
 librosa = "^0.11.0"
+basic-pitch = "^0.4.0"
+setuptools = "<81"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.2.2"

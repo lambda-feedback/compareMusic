@@ -34,4 +34,8 @@ ENV FUNCTION_ARGS="-m,evaluation_function.main"
 # The transport to use for the RPC server
 ENV FUNCTION_RPC_TRANSPORT="ipc"
 
+# The transport the evaluation function's own RPC server should use.
+# Must match FUNCTION_RPC_TRANSPORT above, or Shimmy dials a socket the worker never opens.
+ENV EVAL_RPC_TRANSPORT="ipc"
+
 ENV LOG_LEVEL="debug"

@@ -31,11 +31,14 @@ ENV FUNCTION_COMMAND="python"
 # Args to start the evaluation function with
 ENV FUNCTION_ARGS="-m,evaluation_function.main"
 
-# The transport to use for the RPC server
-ENV FUNCTION_RPC_TRANSPORT="ipc"
+# The transport to use for the RPC server.
+# stdio (the default) ties the worker directly to its own stdin/stdout instead of
+# a background Unix-socket accept loop, which is more resilient to AWS Lambda
+# freezing non-request threads between invocations.
+ENV FUNCTION_RPC_TRANSPORT="stdio"
 
 # The transport the evaluation function's own RPC server should use.
 # Must match FUNCTION_RPC_TRANSPORT above, or Shimmy dials a socket the worker never opens.
-ENV EVAL_RPC_TRANSPORT="ipc"
+ENV EVAL_RPC_TRANSPORT="stdio"
 
 ENV LOG_LEVEL="debug"

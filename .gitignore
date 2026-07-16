@@ -133,3 +133,6 @@ dmypy.json
 
 # Test reports
 reports/
+
+# PianoVAM dataset
+notebooks/data/PianoVAM_v1/

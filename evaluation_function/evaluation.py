@@ -7,6 +7,8 @@ All evaluation logic is in compare_music.py, this file is for the platform inter
 """
 
 
+import json
+
 from typing import Any
 from lf_toolkit.evaluation import Result, Params
 
@@ -50,7 +52,12 @@ def evaluation_function(
     """
     if params is None:
         params = {}
-    
+
+    if isinstance(response, str):
+        response = json.loads(response)
+    if isinstance(answer, str):
+        answer = json.loads(answer)
+
     result = compare_performance_ED(
         response,
         answer,

@@ -6,7 +6,7 @@ and expects a dict back with at least "is_correct" and "feedback" keys.
 All evaluation logic is in compare_music.py, this file is for the platform interface.
 """
 
-
+import json
 from typing import Any
 from lf_toolkit.evaluation import Result, Params
 
@@ -19,6 +19,14 @@ from .compare_MIDI import (
     GLOBAL_FAST_THRESHOLD,
     DEFAULT_CHORD_ONSET_WINDOW
 )
+
+def parse_json_input(data: Any) -> Any:
+    """
+    Convert a JSON string into a Python object.
+    """
+    if isinstance(data, str):
+        return json.loads(data)
+    return data
 
 
 def evaluation_function(
@@ -50,7 +58,12 @@ def evaluation_function(
     """
     if params is None:
         params = {}
-    
+
+    # The Lambda Feedback app sends response/answer as JSON strings,
+    # convert them into Python object first
+    response = parse_json_input(response)
+    answer = parse_json_input(answer)
+
     result = compare_performance_ED(
         response,
         answer,

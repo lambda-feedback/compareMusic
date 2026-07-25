@@ -135,4 +135,6 @@ dmypy.json
 reports/
 
 # PianoVAM dataset
-notebooks/data/PianoVAM_v1/
+notebooks/data/
+
+notebooks/outputs

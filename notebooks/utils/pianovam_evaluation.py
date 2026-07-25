@@ -12,6 +12,49 @@ import pandas as pd
 from evaluation_function.audio_processing import transcribe_audio_cached
 from evaluation_function.compare_MIDI import compare_performance_ED
 
+from huggingface_hub import snapshot_download
+import json
+
+def download_pianovam_dataset(data_root, repo_id="PianoVAM/PianoVAM_v1"):
+    """
+    Download the PianoVAM dataset into data_root if it is not already
+    there. Only downloads Audio, MIDI, TSV, metadata.json, and README,
+    skipping anything else in the repo.
+    """
+    if data_root.exists():
+        print("PianoVAM dataset already exists.")
+        return
+
+    print("Downloading PianoVAM dataset...")
+    snapshot_download(
+        repo_id=repo_id,
+        repo_type="dataset",
+        local_dir=data_root,
+        allow_patterns=[
+            "Audio/**",
+            "MIDI/**",
+            "TSV/**",
+            "metadata.json",
+            "README.md",
+        ],
+    )
+    print("Download complete.")
+
+
+def load_pianovam_metadata(metadata_path):
+    """
+    Load PianoVAM metadata.json into a DataFrame, one row per sample,
+    with duration converted to seconds for convenience.
+    """
+    with metadata_path.open("r") as file:
+        metadata = json.load(file)
+
+    metadata_df = pd.DataFrame.from_dict(metadata, orient="index").reset_index(names="sample_id")
+    metadata_df["sample_id"] = metadata_df["sample_id"].astype(str)
+    metadata_df["duration_seconds"] = pd.to_timedelta(metadata_df["duration"]).dt.total_seconds()
+
+    return metadata_df
+
 
 def get_sample_paths(sample, audio_dir, midi_dir, tsv_dir):
     """

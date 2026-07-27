@@ -8,7 +8,7 @@ all audio processing logic is in audio_processing.py,
 this file is for the platform interface.
 """
 
-
+import json
 from typing import Any
 from lf_toolkit.evaluation import Result, Params
 
@@ -26,6 +26,14 @@ from .audio_processing import is_audio_input, load_basic_pitch_model, transcript
 # Load the AMT model once when this module is imported (cold start),
 # not inside evaluation_function, so it is not reloaded on every request.
 BASIC_PITCH_MODEL = load_basic_pitch_model()
+
+def parse_json_input(data: Any) -> Any:
+    """
+    Convert a JSON string into a Python object.
+    """
+    if isinstance(data, str):
+        return json.loads(data)
+    return data
 
 
 def evaluation_function(
@@ -58,17 +66,11 @@ def evaluation_function(
     if params is None:
         params = {}
 
-    if is_audio_input(response):
-        # Step 1a: audio -> notes, only when needed
-        compare_midi_input, predicted_notes, runtime_seconds = transcription_pipeline(
-            response,
-            BASIC_PITCH_MODEL,
-            apply_postprocessing=params.get("apply_postprocessing", True),
-        )
-    else:
-        # response is already in the notes format compare_MIDI expects
-        compare_midi_input = response
-    
+    # The Lambda Feedback app sends response/answer as JSON strings,
+    # convert them into Python object first
+    response = parse_json_input(response)
+    answer = parse_json_input(answer)
+
     result = compare_performance_ED(
         compare_midi_input,
         answer,

@@ -17,6 +17,7 @@ Pipeline overview:
 import time
 import contextlib
 import io
+import os
 
 from basic_pitch import ICASSP_2022_MODEL_PATH
 from basic_pitch.inference import Model, predict
@@ -36,6 +37,40 @@ MIN_FOLLOWING_NOTES = 5
 MAX_SEARCH_SECONDS = 5.0
 MAX_GAP_SECONDS = 0.02
 MAX_FRAGMENT_DURATION = 0.15
+
+
+# File extensions we treat as "audio that needs transcription"
+AUDIO_EXTENSIONS = [".wav", ".mp3", ".m4a", ".flac", ".ogg"]
+# File extensions we treat as "already MIDI, no transcription needed"
+MIDI_EXTENSIONS = [".mid", ".midi"]
+
+
+# Helper function to check if the response is audio
+# ------------------------------------------------------------------------------
+def is_audio_input(response):
+    """
+    Return True if response looks like an audio file that needs to go
+    through the AMT pipeline before it can be compared.
+
+    response can be:
+      - a file path string (checked by extension)
+      - a dict that already has a "notes" key (already MIDI, skip AMT)
+    """
+    # Case 1: response is already a notes dictionary, no AMT needed
+    if isinstance(response, dict) and "notes" in response:
+        return False
+
+    # Case 2: response is a file path string, check its extension
+    if isinstance(response, str):
+        file_extension = os.path.splitext(response)[1].lower()
+        if file_extension in AUDIO_EXTENSIONS:
+            return True
+        if file_extension in MIDI_EXTENSIONS:
+            return False
+
+    # Default: if we cannot tell, assume it is not audio
+    # (safer to fail toward the existing, well-tested MIDI path)
+    return False
 
 
 # Load the model

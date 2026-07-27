@@ -16,7 +16,7 @@ typing_extensions = "^4.12.2"
 lf_toolkit = { git = "https://github.com/lambda-feedback/toolkit-python.git", branch = "main", extras = [
     "ipc",
 ] }
-numpy = "^2.4.6"
+numpy = "<2.0"
 matplotlib = "^3.11.0"
 pretty-midi = "^0.2.11"
 pandas = "^3.0.3"

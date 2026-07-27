@@ -103,7 +103,7 @@ celerybeat.pid
 
 # Environments
 .env
-.venv
+.venv*
 env/
 venv/
 ENV/
@@ -133,3 +133,8 @@ dmypy.json
 
 # Test reports
 reports/
+
+# PianoVAM dataset
+notebooks/data/
+
+notebooks/outputs

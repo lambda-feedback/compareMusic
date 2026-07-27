@@ -3,7 +3,7 @@ evaluation.py
 =============
 Lambda Feedback platform calls evaluation_function(response, answer, params) 
 and expects a dict back with at least "is_correct" and "feedback" keys.
-All evaluation logic is in compare_music.py, this file is for the platform interface.
+All evaluation logic is in compare_MIDI.py, this file is for the platform interface.
 """
 
 import json

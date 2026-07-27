@@ -3,7 +3,9 @@ evaluation.py
 =============
 Lambda Feedback platform calls evaluation_function(response, answer, params) 
 and expects a dict back with at least "is_correct" and "feedback" keys.
-All evaluation logic is in compare_music.py, this file is for the platform interface.
+All evaluation logic is in compare_MIDI.py, 
+all audio processing logic is in audio_processing.py, 
+this file is for the platform interface.
 """
 
 
@@ -19,6 +21,11 @@ from .compare_MIDI import (
     GLOBAL_FAST_THRESHOLD,
     DEFAULT_CHORD_ONSET_WINDOW
 )
+from .audio_processing import is_audio_input, load_basic_pitch_model, transcription_pipeline
+
+# Load the AMT model once when this module is imported (cold start),
+# not inside evaluation_function, so it is not reloaded on every request.
+BASIC_PITCH_MODEL = load_basic_pitch_model()
 
 
 def evaluation_function(
@@ -50,9 +57,20 @@ def evaluation_function(
     """
     if params is None:
         params = {}
+
+    if is_audio_input(response):
+        # Step 1a: audio -> notes, only when needed
+        compare_midi_input, predicted_notes, runtime_seconds = transcription_pipeline(
+            response,
+            BASIC_PITCH_MODEL,
+            apply_postprocessing=params.get("apply_postprocessing", True),
+        )
+    else:
+        # response is already in the notes format compare_MIDI expects
+        compare_midi_input = response
     
     result = compare_performance_ED(
-        response,
+        compare_midi_input,
         answer,
         gap_penalty=params.get("gap_penalty", DEFAULT_GAP_PENALTY),
         timing_relative_threshold=params.get(

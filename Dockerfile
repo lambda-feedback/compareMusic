@@ -1,4 +1,4 @@
-FROM ghcr.io/lambda-feedback/evaluation-function-base/python:3.12 AS builder
+FROM ghcr.io/lambda-feedback/evaluation-function-base/python:3.11 AS builder
 
 RUN pip install poetry==1.8.3
 
@@ -12,7 +12,7 @@ COPY pyproject.toml poetry.lock ./
 RUN --mount=type=cache,target=$POETRY_CACHE_DIR \
     poetry install --without dev --no-root
 
-FROM ghcr.io/lambda-feedback/evaluation-function-base/python:3.12
+FROM ghcr.io/lambda-feedback/evaluation-function-base/python:3.11
 
 ENV VIRTUAL_ENV=/app/.venv \
     PATH="/app/.venv/bin:$PATH"

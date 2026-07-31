@@ -383,7 +383,7 @@ def plot_transcription_piano_roll(ground_truth_notes, predicted_notes, title=Non
     plt.show()
 
 
-# summaries, comparison tables, and case studies
+# summaries, comparison tables, and case studies, visualisation
 # -----------------------------------------------------------------------
 def summarise_amt_results(results_df):
     """
@@ -533,3 +533,208 @@ def run_case_study_before_after_tuning(sample_id, metadata_df, audio_dir,
     )
  
     return comparison_df
+
+
+from matplotlib.patches import ConnectionPatch
+from matplotlib.lines import Line2D
+
+def match_notes_for_plotting(reference_notes, predicted_notes,
+                             onset_tolerance=0.05, offset_ratio=None):
+    """
+    Match predicted notes to PianoVAM ground-truth notes using mir_eval.
+
+    Returns matched index pairs, missing reference-note indices,
+    and extra predicted-note indices.
+    """
+    reference_intervals, reference_pitches = notes_to_mir_eval_arrays(
+        reference_notes,
+        offset_key="frame_offset",
+    )
+    predicted_intervals, predicted_pitches = notes_to_mir_eval_arrays(
+        predicted_notes,
+        offset_key="offset",
+    )
+
+    matching = mir_eval.transcription.match_notes(
+        reference_intervals,
+        reference_pitches,
+        predicted_intervals,
+        predicted_pitches,
+        onset_tolerance=onset_tolerance,
+        offset_ratio=offset_ratio,
+    )
+
+    matched_reference_indices = {pair[0] for pair in matching}
+    matched_predicted_indices = {pair[1] for pair in matching}
+
+    missing_indices = [
+        index
+        for index in range(len(reference_notes))
+        if index not in matched_reference_indices
+    ]
+
+    extra_indices = [
+        index
+        for index in range(len(predicted_notes))
+        if index not in matched_predicted_indices
+    ]
+
+    return matching, missing_indices, extra_indices
+
+
+def plot_transcription_alignment(reference_notes, predicted_notes, title=None,
+                                 onset_tolerance=0.05, offset_ratio=None,
+                                 time_range=None):
+    """
+    Plot predicted notes and PianoVAM ground truth in two piano-roll rows.
+
+    Matched notes are connected by grey lines, missing reference notes
+    are marked with red crosses, and extra predicted notes are marked
+    with purple triangles.
+
+    offset_ratio=None gives onset-and-pitch matching without requiring
+    note offsets to match, consistent with note_f1_no_offset.
+    """
+    matching, missing_indices, extra_indices = match_notes_for_plotting(
+        reference_notes,
+        predicted_notes,
+        onset_tolerance=onset_tolerance,
+        offset_ratio=offset_ratio,
+    )
+
+    fig, (ax_predicted, ax_reference) = plt.subplots(2, 1, 
+                                                     figsize=(14, 7), 
+                                                     sharex=True)
+
+    if title is not None:
+        fig.suptitle(title)
+
+    all_pitches = (
+        [note["pitch"] for note in predicted_notes]
+        + [note["pitch"] for note in reference_notes]
+    )
+
+    all_offsets = (
+        [note["offset"] for note in predicted_notes]
+        + [note["frame_offset"] for note in reference_notes]
+    )
+
+    pitch_min = min(all_pitches) - 1
+    pitch_max = max(all_pitches) + 1
+    time_max = max(all_offsets)
+
+    for note in predicted_notes:
+        ax_predicted.plot(
+            [note["onset"], note["offset"]],
+            [note["pitch"], note["pitch"]],
+            linewidth=3,
+            alpha=0.8,
+        )
+
+    for note in reference_notes:
+        ax_reference.plot(
+            [note["onset"], note["frame_offset"]],
+            [note["pitch"], note["pitch"]],
+            linewidth=3,
+            alpha=0.8,
+        )
+
+    def note_is_visible(note, offset_key):
+        if time_range is None:
+            return True
+
+        return (
+            note[offset_key] >= time_range[0]
+            and note["onset"] <= time_range[1]
+        )
+
+    for reference_index, predicted_index in matching:
+        reference_note = reference_notes[reference_index]
+        predicted_note = predicted_notes[predicted_index]
+
+        if not (
+            note_is_visible(reference_note, "frame_offset")
+            or note_is_visible(predicted_note, "offset")
+        ):
+            continue
+
+        connection = ConnectionPatch(
+            xyA=(predicted_note["onset"], predicted_note["pitch"]),
+            coordsA=ax_predicted.transData,
+            xyB=(reference_note["onset"], reference_note["pitch"]),
+            coordsB=ax_reference.transData,
+            color="lightgray",
+            linewidth=1.8,
+            zorder=10,
+        )
+
+        fig.add_artist(connection)
+
+        ax_predicted.scatter(
+            predicted_note["onset"],
+            predicted_note["pitch"],
+            color="lightgray",
+            s=20,
+            zorder=10,
+        )
+
+        ax_reference.scatter(
+            reference_note["onset"],
+            reference_note["pitch"],
+            color="lightgray",
+            s=20,
+            zorder=10,
+        )
+
+    for reference_index in missing_indices:
+        note = reference_notes[reference_index]
+        if not note_is_visible(note, "frame_offset"):
+            continue
+        middle_time = note["onset"] + (note["frame_offset"] - note["onset"]) / 2
+        ax_reference.scatter(middle_time, note["pitch"], marker="x", 
+                             color="red", s=80, zorder=10)
+
+    for predicted_index in extra_indices:
+        note = predicted_notes[predicted_index]
+        if not note_is_visible(note, "offset"):
+            continue
+        middle_time = note["onset"] + (note["offset"] - note["onset"]) / 2
+        ax_predicted.scatter(middle_time, note["pitch"], marker="^",
+                             color="purple", s=80, zorder=10)
+
+    ax_predicted.set_title("Basic Pitch transcription")
+    ax_predicted.set_ylabel("MIDI pitch")
+    ax_predicted.grid(alpha=0.15)
+
+    ax_reference.set_title("PianoVAM ground truth: audible duration including pedal")
+    ax_reference.set_xlabel("Time (seconds)")
+    ax_reference.set_ylabel("MIDI pitch")
+    ax_reference.grid(alpha=0.15)
+
+    if time_range is None:
+        x_min = 0
+        x_max = time_max
+    else:
+        x_min, x_max = time_range
+
+    for ax in (ax_predicted, ax_reference):
+        ax.set_xlim(x_min, x_max)
+        ax.set_ylim(pitch_min, pitch_max)
+
+    legend_elements = [
+        Line2D([0], [0], color="lightgray", linewidth=1.8, label="Match"),
+        Line2D([0], [0], marker="x", color="white", markeredgecolor="red",
+               markersize=10, label="Missing"),
+        Line2D([0], [0], marker="^", color="white", markerfacecolor="purple",
+               markeredgecolor="purple", markersize=10, label="Extra")]
+
+    ax_predicted.legend(handles=legend_elements, loc="upper right", fontsize=9)
+
+    fig.tight_layout()
+    plt.show()
+
+    return {
+        "matched": len(matching),
+        "missing": len(missing_indices),
+        "extra": len(extra_indices),
+    }

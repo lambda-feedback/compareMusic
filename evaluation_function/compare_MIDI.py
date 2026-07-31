@@ -12,6 +12,7 @@ Pipeline overview (called in order by compare_performance_ED):
     Step 3 -- event_level_feedback      (note/chord-level feedback)
     Step 4 -- compute_stats             (summary counts)
     Step 5 -- generate_feedback_message (human-readable text)
+              polished_feedback_message (polished version of human-readable text)
     Step 6 -- is_correct                (overall pass/fail judgement)
 """
 
@@ -1062,6 +1063,235 @@ def generate_feedback_message(event_details, response_events, ref_events, stats,
     return "\n".join(all_messages)
 
 
+def polished_feedback_message(event_details, response_events, ref_events, stats,
+                               global_slow_threshold=GLOBAL_SLOW_THRESHOLD,
+                               global_fast_threshold=GLOBAL_FAST_THRESHOLD):
+    """
+    Generate concise, practice-oriented feedback that aims to:
+        1. summarise current performance level qualitatively
+        2. suggest a measurable goal for the next attempt with a main focus area
+        3. provide encouraging actionable advice for improvement
+    Individual note and chord errors remain available in event_details but
+    will not list each of them in the message.
+
+    Args:
+        event_details: list of dicts, output of event_level_feedback()
+        response_events: list of event dicts from group_notes_into_events
+        ref_events: list of event dicts from group_notes_into_events
+        stats: dict, output of compute_stats()
+        global_slow_threshold: timing_scale above this triggers "too slow" message
+        global_fast_threshold: timing_scale below this triggers "too fast" message
+
+    Returns:
+        feedback_message (str)
+    """
+    note_events  = [n for n in event_details if n["event_type"] == "note"]
+    chord_events = [ch for ch in event_details if ch["event_type"] == "chord"]
+
+    paired_notes  = [
+        n for n in note_events
+        if n["operation_type"] in ("match", "replacement")
+    ]
+    paired_chords = [
+        ch for ch in chord_events
+        if ch["operation_type"] in ("match", "replacement")
+    ]
+
+    total_reference_notes = stats["total_notes_in_reference"]
+    total_reference_chords = stats["total_chords_in_reference"]
+    total_aligned_events = len(paired_notes) + len(paired_chords)
+
+    timing_scale = stats["timing_scale"]
+    timing_offset = stats["timing_offset"]
+    duration_scale = stats["duration_scale"]
+
+    # -------------- summarise current performance level --------------
+    # tempo: acceptable / too slow / too fast
+    # ------------------------------------------------------------------
+    timing_pct = abs(timing_scale - 1.0) * 100
+    duration_pct = abs(duration_scale - 1.0) * 100
+    if timing_scale > 1:
+        timing_direction = "behind"
+    elif timing_scale < 1:
+        timing_direction = "ahead of"
+    else:
+        timing_direction = "the same as"
+
+    if duration_scale > 1:
+        duration_direction = "longer than"
+    elif duration_scale < 1:
+        duration_direction = "shorter than"
+    else:
+        duration_direction = "the same as"
+
+    if timing_scale > global_slow_threshold:
+        tempo_message = (
+            f"Overall, your tempo is slower than the reference "
+            f"(timing is about {timing_pct:.0f}% {timing_direction} the reference in general while "
+            f"notes are held about {duration_pct:.0f}% {duration_direction} the reference). "
+            f"No worries! You will get better when you practice more to get more familiar with it!"
+        )
+    elif timing_scale < global_fast_threshold:
+        tempo_message = (
+            f"Overall, your tempo is faster than the reference "
+            f"(timing is about {timing_pct:.0f}% {timing_direction} the reference in general while "
+            f"notes are held about {duration_pct:.0f}% {duration_direction} the reference). "
+            f"Don't rush even if you are confident in your performance." 
+            f"Slow down and give each note its full value."
+        )
+    else:
+        tempo_message = (
+            f"Timing: your overall tempo is within an acceptable range. Good job! "
+            f"The timing is about {timing_pct:.0f}% {timing_direction} the reference in general while "
+            f"notes are held about {duration_pct:.0f}% {duration_direction} than the reference."
+        )
+
+    # missing and extra
+    # ------------------------------------------------------------------
+    total_missing_events = stats["total_notes_missing"] + stats["total_chords_missing"]
+    total_extra_events = stats["total_notes_extra"] + stats["total_chords_extra"]
+    if total_missing_events == 0 and total_extra_events == 0:
+        completeness_messages = "Great! You did not miss or play any extra notes or chords. "
+    else:
+        completeness_messages = "No worries! Slow down and mind your fingering and hand position in your next try. "
+
+    # qualitative feedback on performance accuracy 
+    # ------------------------------------------------------------------
+    if total_reference_notes > 0:
+        note_pitch_correct = (total_reference_notes 
+                              - stats["total_notes_wrong_pitch"] - stats["total_notes_missing"])
+        note_pitch_accuracy = note_pitch_correct / total_reference_notes
+
+        timing_correct = (total_reference_notes 
+                          - stats["total_notes_wrong_timing"] - stats["total_notes_missing"])
+        note_timing_accuracy = timing_correct / total_reference_notes
+     
+        duration_correct = (total_reference_notes
+                            - stats["total_notes_wrong_duration"] - stats["total_notes_missing"])
+        note_duration_accuracy = duration_correct / total_reference_notes 
+    else:
+        note_pitch_accuracy = None
+        note_timing_accuracy = None
+        note_duration_accuracy = None
+ 
+    if total_reference_chords > 0:
+        sum_chord_accuracy = sum(
+            event["chord_accuracy"]
+            for event in paired_chords
+            if event["chord_accuracy"] is not None
+        )
+        mean_chord_accuracy = sum_chord_accuracy / total_reference_chords
+    else:
+        mean_chord_accuracy = None
+
+    current_performance_messages = []
+
+    if note_pitch_accuracy is not None:
+        if note_pitch_accuracy >= 0.90:
+            current_performance_messages.append(f"Great! Most notes were played correctly. \n")
+        elif note_pitch_accuracy >= 0.70:
+            current_performance_messages.append(
+                f"Many notes were correct, although some passages " \
+                f"still need more careful practice. \n"
+            )
+        else:
+            current_performance_messages.append(
+                f"Note accuracy needs more focused practice. " \
+                f"Practise the most difficult passage slowly, " \
+                f"check each note carefully, and then speed up to the correct tempo. \n"
+            )
+
+    if note_timing_accuracy is not None:
+        if note_timing_accuracy >= 0.90:
+            current_performance_messages.append(
+                f"Great timing consistency between notes! \n"
+            )
+        elif note_timing_accuracy >= 0.70:
+            current_performance_messages.append(
+                f"Timing of some passages need more careful practice, good overall! \n" 
+            )
+        else:
+            current_performance_messages.append(
+                f"Timing consistency needs more practice, " \
+                f"you may find it helpful to practice with a metronome. \n"
+            )
+        # do not comment on duration for now, as it may be due to transcription errors
+
+    if mean_chord_accuracy is not None:
+        if mean_chord_accuracy >= 0.90:
+            current_performance_messages.append(
+                f"Well done on the chords!"
+            )
+        elif mean_chord_accuracy >= 0.70:
+            current_performance_messages.append(
+                f"Many chord notes were correct, but some chords contained "
+                f"missing or additional notes."
+            )
+        else:
+            current_performance_messages.append(
+                f"Chord accuracy needs more focused practice, " 
+                f"they are often hard to play correctly at the beginning. " 
+                f"Pay attention to the fingering and hand position when playing chords."
+                f"You may find it helpful to practise each chord separately before reconnecting the surrounding passage."
+            )
+
+    # -------------- suggest a measurable goal and a focus area --------------
+    scores = {}
+    if note_pitch_accuracy is not None:
+        scores["pitch"] = note_pitch_accuracy
+    if note_timing_accuracy is not None:
+        scores["timing"] = note_timing_accuracy
+    if note_duration_accuracy is not None:
+        scores["duration"] = note_duration_accuracy
+    if mean_chord_accuracy is not None:
+        scores["chords"] = mean_chord_accuracy
+
+    if scores:
+        main_focus = min(scores, key=scores.get)
+        main_focus_score = scores[main_focus]
+    else:
+        main_focus = None
+        main_focus_score = None
+
+    if main_focus == "pitch":
+        focus_message = (
+            f"Your current pitch accuracy is {main_focus_score:.2f}. Aiming to improve by 5% in your next practice. ")
+
+    elif main_focus == "timing":
+        focus_message = (
+            f"Your current timing accuracy is {main_focus_score:.2f}. Aiming to improve by 5% in your next practice. ")
+
+    elif main_focus == "duration":
+        focus_message = (
+            f"Your current duration accuracy is {main_focus_score:.2f}. Aiming to improve by 5% in your next practice. ")
+
+    elif main_focus == "chords":
+        focus_message = (
+            f"Your current chord accuracy is {main_focus_score:.2f}. Aiming to improve by 5% in your next practice. ")
+
+    else:
+        focus_message = ("Practice the most challenging section you find during practice.")
+
+    all_messages = [
+        "Practice Summary",
+        "",
+        " ".join(current_performance_messages),
+        "",
+        "Tempo",
+        tempo_message,
+        "",
+        "Performance Completeness",
+        " ".join(completeness_messages),
+        "",
+        "Main Practice Focus",
+        focus_message,
+        "",
+        "Practice makes perfect! Keep up the good work and enjoy your music journey!",
+    ]
+        
+    return "\n".join(all_messages)
+
+
 # FeedbackResult class
 # ------------------------------------------------------------------------------
 class FeedbackResult:
@@ -1173,7 +1403,7 @@ def compare_performance_ED(responseMIDI, refMIDI,
     )
 
     # Step 5: Generate human-readable feedback
-    feedback_message = generate_feedback_message(
+    feedback_message = polished_feedback_message(
         event_details, response_events, ref_events, stats,
         global_slow_threshold=global_slow_threshold,
         global_fast_threshold=global_fast_threshold,

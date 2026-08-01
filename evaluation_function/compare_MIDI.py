@@ -1069,8 +1069,8 @@ def polished_feedback_message(event_details, response_events, ref_events, stats,
     """
     Generate concise, practice-oriented feedback that aims to:
         1. summarise current performance level qualitatively
-        2. suggest a measurable goal for the next attempt with a main focus area
-        3. provide encouraging actionable advice for improvement
+        2. provide encouraging actionable advice for improvement
+        3. suggest a measurable goal for the next attempt with a main focus area
     Individual note and chord errors remain available in event_details but
     will not list each of them in the message.
 
@@ -1099,10 +1099,7 @@ def polished_feedback_message(event_details, response_events, ref_events, stats,
 
     total_reference_notes = stats["total_notes_in_reference"]
     total_reference_chords = stats["total_chords_in_reference"]
-    total_aligned_events = len(paired_notes) + len(paired_chords)
-
-    timing_scale = stats["timing_scale"]
-    duration_scale = stats["duration_scale"]
+    total_reference_events = total_reference_notes + total_reference_chords
 
     # --------------- summarise current performance level ---------------
     # compute note-level accuracy metrics for pitch, timing, and duration
@@ -1112,27 +1109,27 @@ def polished_feedback_message(event_details, response_events, ref_events, stats,
                               - stats["total_notes_wrong_pitch"] - stats["total_notes_missing"])
         note_pitch_accuracy = note_pitch_correct / total_reference_notes
 
-        timing_correct = (total_reference_notes 
+        note_timing_correct = (total_reference_notes 
                           - stats["total_notes_wrong_timing"] - stats["total_notes_missing"])
-        note_timing_accuracy = timing_correct / total_reference_notes
+        note_timing_accuracy = note_timing_correct / total_reference_notes
      
-        duration_correct = (total_reference_notes
+        note_duration_correct = (total_reference_notes
                             - stats["total_notes_wrong_duration"] - stats["total_notes_missing"])
-        note_duration_accuracy = duration_correct / total_reference_notes 
+        note_duration_accuracy = note_duration_correct / total_reference_notes 
     else:
         note_pitch_accuracy = None
         note_timing_accuracy = None
         note_duration_accuracy = None
  
-    if total_reference_chords > 0:
-        sum_chord_accuracy = sum(
-            event["chord_accuracy"]
-            for event in paired_chords
-            if event["chord_accuracy"] is not None
-        )
-        mean_chord_accuracy = sum_chord_accuracy / total_reference_chords
+    paired_chord_accuracies = [event["chord_accuracy"] 
+                               for event in paired_chords 
+                               if event["chord_accuracy"] is not None]
+    # Missing chords were never matched, treat as 0 accuracy for the purpose of computing median chord accuracy
+    paired_chord_accuracies = paired_chord_accuracies + [0.0] * stats["total_chords_missing"]
+    if paired_chord_accuracies:
+        median_chord_accuracy = float(np.median(paired_chord_accuracies))
     else:
-        mean_chord_accuracy = None
+        median_chord_accuracy = None
 
     # summary qualitative feedback messages based on the accuracy metrics
     # -------------------------------------------------------------------
@@ -1140,17 +1137,22 @@ def polished_feedback_message(event_details, response_events, ref_events, stats,
 
     if note_pitch_accuracy is not None:
         if note_pitch_accuracy >= 0.90:
-            current_performance_messages.append("Great! Most notes were played correctly.")
+            current_performance_messages.append(
+                "Great! Most notes were played correctly, " \
+                "you've got a good grasp of the melody.")
         elif note_pitch_accuracy >= 0.70:
             current_performance_messages.append(
-                "Many notes were correct, although a few passages "
-                "still need more careful practice."
+                "Many notes were correct, although a few passages " \
+                "still need more careful practice. Try slowing down in " \
+                "these sections and checking each note before gradually " \
+                "returning to the intended tempo."
             )
         else:
             current_performance_messages.append(
                 "Note accuracy needs more focused practice. " 
-                "Practise the most difficult passage slowly, " 
-                "check each note carefully, and then speed up to the correct tempo. "
+                "Practice one short passage at slower tempo, " 
+                "check each note carefully, and then speed up to the correct tempo. " \
+                "Move on to the next passage when you feel confident with current one."
             )
 
     if note_timing_accuracy is not None:
@@ -1160,59 +1162,82 @@ def polished_feedback_message(event_details, response_events, ref_events, stats,
             )
         elif note_timing_accuracy >= 0.70:
             current_performance_messages.append(
-                "Timing of a few passages need more careful practice, good overall! " 
+                "The spacing between notes was mostly consistent, although " \
+                "a few passages were less steady. Practicing these sections " \
+                "with a slower, regular beat may help make the rhythm more even."
             )
         else:
             current_performance_messages.append(
-                "Timing consistency needs more practice, "
-                "you may find it helpful to practice with a metronome. "
+                "Timing consistency needs more practice, listen carefully " \
+                "for notes that arrive too early or too late. " \
+                "You may find it helpful to practice with a metronome. "
             )
         # do not comment on duration for now, as it may be due to transcription errors
 
-    if mean_chord_accuracy is not None:
-        if mean_chord_accuracy >= 0.90:
-            current_performance_messages.append("Well done on the chords!")
-        elif mean_chord_accuracy >= 0.70:
+    if total_reference_chords > 0:
+        if median_chord_accuracy is None or median_chord_accuracy < 0.70:
             current_performance_messages.append(
-                "Many chord notes were correct, but some chords contained "
-                "missing or additional notes."
+                            "Simultaneous notes are often hard to play correctly at the beginning. " \
+                            "Pay attention to the fingering and hand position when playing these chords. " \
+                            "Practice those sections slowly and carefully, and check that all required notes sound together. " \
+                            "You may find it helpful to practice each chord separately before reconnecting the surrounding passage."
+                        )
+        elif median_chord_accuracy >= 0.90:
+            current_performance_messages.append(
+                "Nice! The chord notes were accurate overall."
             )
-        else:
+        elif median_chord_accuracy >= 0.70:
             current_performance_messages.append(
-                "Chord accuracy needs more focused practice, " 
-                "they are often hard to play correctly at the beginning. " 
-                "Pay attention to the fingering and hand position when playing chords. "
-                "You may find it helpful to practise each chord separately before reconnecting the surrounding passage."
+                "Many chord notes were correct, although some chords included " \
+                "missing or additional notes. Practice each difficult chord " \
+                "separately and check that all required notes sound together."
             )
 
     # overall tempo feedback based on timing and duration scale factors
     # -------------------------------------------------------------------
+    timing_scale = stats["timing_scale"]
+    duration_scale = stats["duration_scale"]
     if timing_scale > global_slow_threshold:
         tempo_message = (
-            "Your overall tempo was slower than the reference. It is a good idea to "
-            "play slowly while learning, so focus on maintaining a steady tempo "
+            "Your overall tempo was slower than the reference. It is a good idea to " \
+            "play slowly while learning, so focus on maintaining a steady tempo " \
             "before gradually increasing the speed."
         )
     elif timing_scale < global_fast_threshold:
         tempo_message = (
-            "Your overall tempo was faster than the reference. Try slowing "
-            "down slightly so that each note can be played clearly."
+            "Your overall tempo was faster than the reference. Try slowing " \
+            "down slightly so that each note can be played clearly and the rhythm remains controlled."
         )
     else:
         tempo_message = (
-            "Well done! Your overall tempo was close to the reference, keep on the good work!"
+            "Well done! Your overall tempo was close to the reference. Keep up the good work!"
         )
 
     # missing and extra
     # ------------------------------------------------------------------
-    total_missing_events = stats["total_notes_missing"] + stats["total_chords_missing"]
-    total_extra_events = stats["total_notes_extra"] + stats["total_chords_extra"]
-    if total_missing_events == 0 and total_extra_events == 0:
-        completeness_messages = "Great! You did not miss or play any extra notes or chords. "
+    total_missing_events = (stats["total_notes_missing"] + stats["total_chords_missing"])
+    total_extra_events = (stats["total_notes_extra"] + stats["total_chords_extra"])
+    total_completeness_errors = (total_missing_events + total_extra_events)
+    if total_reference_events > 0:
+        completeness_error_rate = total_completeness_errors / total_reference_events
+    else:
+        completeness_error_rate = 0.0
+
+    if total_completeness_errors == 0:
+        completeness_messages = (
+            "You completed the performance without missing or adding any " \
+            "notes or chords. Well done!"
+        )
+    elif completeness_error_rate <= 0.10:
+        completeness_messages = (
+            "The performance was mostly complete, with only a few missing " \
+            "or additional notes or chords. Review the affected passages " \
+            "slowly and check your fingering before playing them again."
+        )
     else:
         completeness_messages = (
-            "No worries! It is common to miss or play extra notes when learning a new piece, " 
-            "especially difficult passages. You can slow down in your next practice and pay "
+            "No worries! It is common to miss or play extra notes when learning a new piece, " \
+            "especially difficult passages. You can slow down in your next practice and pay " \
             "more attention to your fingering and hand position. ")
 
     # -------------- suggest a measurable goal and a focus area --------------
@@ -1223,36 +1248,34 @@ def polished_feedback_message(event_details, response_events, ref_events, stats,
         scores["timing"] = note_timing_accuracy
     # if note_duration_accuracy is not None:
         # scores["duration"] = note_duration_accuracy
-    if mean_chord_accuracy is not None:
-        scores["chords"] = mean_chord_accuracy
+    if median_chord_accuracy is not None:
+        scores["chords"] = median_chord_accuracy
 
     if scores:
         main_focus = min(scores, key=scores.get)
-        main_focus_score = scores[main_focus]
     else:
         main_focus = None
-        main_focus_score = None
 
     if main_focus == "pitch":
         focus_message = (
-            "Choose one short challenging passage and practice it slowly. "
+            "For your next attempt, choose one short challenging passage and practice it slowly. " \
             "Aim to play this phrase correctly three times in a row before increasing the tempo."
         )
     elif main_focus == "timing":
         focus_message = (
-            "Practice with a slower steady beat, better with a metronome. "
-            "Repeat it until you can keep the spacing between the notes evenly three times in a row. "
+            "Practice with a slower, steady beat, preferably using a metronome. " \
+            "Aim to keep the spacing between the notes evenly three times in a row. " \
             "Then gradually increase the tempo to the correct speed."
         )
-
     elif main_focus == "chords":
         focus_message = (
-            "Practice the difficult chords separately. Adjust your hand position and "
-            "to make all required notes sound together, then practice the short passage ."
+            "For your next attempt, choose one difficult chord and aim to make " \
+            "all required notes sound together correctly three times in a row. " \
+            "Then gradually connect it to the surrounding passage."
         )
-
     else:
-        focus_message = ("Practice the most challenging section you find during practice.")
+        focus_message = ("For your next attempt, choose one short challenging section and " \
+            "aim to play it confidently three times in a row.")
 
     all_messages = [
         "Practice Summary",
@@ -1262,13 +1285,13 @@ def polished_feedback_message(event_details, response_events, ref_events, stats,
         "Tempo",
         tempo_message,
         "",
-        "Performance Completeness",
-        " ".join(completeness_messages),
+        "Performance Completeness", 
+        completeness_messages,
         "",
         "Main Practice Focus",
         focus_message,
         "",
-        "Practice makes perfect! Keep up the good work and enjoy your music journey!",
+        "Keep up the good work and enjoy your music journey!",
     ]
         
     return "\n".join(all_messages)

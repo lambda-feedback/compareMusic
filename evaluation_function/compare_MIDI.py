@@ -1290,8 +1290,7 @@ def polished_feedback_message(event_details, response_events, ref_events, stats,
 
     all_messages = [
         "Practice Summary",
-        "",
-        " ".join(current_performance_messages),
+        "\n".join(current_performance_messages),
         "",
         "Tempo",
         tempo_message,

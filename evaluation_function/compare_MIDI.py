@@ -1150,9 +1150,9 @@ def polished_feedback_message(event_details, response_events, ref_events, stats,
         else:
             current_performance_messages.append(
                 "Note accuracy needs more focused practice. " 
-                "Practice one short passage at slower tempo, " 
+                "Practice one short passage at a slower tempo, " 
                 "check each note carefully, and then speed up to the correct tempo. " \
-                "Move on to the next passage when you feel confident with current one."
+                "Move on to the next passage when you feel confident with the current one."
             )
 
     if note_timing_accuracy is not None:
@@ -1253,29 +1253,40 @@ def polished_feedback_message(event_details, response_events, ref_events, stats,
 
     if scores:
         main_focus = min(scores, key=scores.get)
+        main_focus_score = scores[main_focus]
     else:
         main_focus = None
+        main_focus_score = None
 
-    if main_focus == "pitch":
+    if main_focus_score is not None and main_focus_score >= 0.90:
         focus_message = (
-            "For your next attempt, choose one short challenging passage and practice it slowly. " \
-            "Aim to play this phrase correctly three times in a row before increasing the tempo."
+            "Excellent work! You already have a good understanding of the melody and the rhythm. " \
+            "For your next attempt, choose one short challenging section and " \
+            "aim to play it confidently three times in a row.")
+    elif main_focus == "pitch":
+        overall_message = "You've got a good understanding of the rhythm. " if main_focus_score >= 0.70 else "Good progress! "
+        focus_message = (
+            overall_message + "Let's focus on note accuracy next. Choose one short challenging " \
+            "passage and practice it slowly. Aim to play this phrase correctly " \
+            "three times in a row before increasing the tempo and moving on."
         )
     elif main_focus == "timing":
+        overall_message = "You've got a good understanding of the melody. " if main_focus_score >= 0.70 else "Good progress! "
         focus_message = (
-            "Practice with a slower, steady beat, preferably using a metronome. " \
-            "Aim to keep the spacing between the notes evenly three times in a row. " \
-            "Then gradually increase the tempo to the correct speed."
+            overall_message + "Let's focus on timing next. Practice with a slower, steady beat, " \
+            "preferably using a metronome. Aim to keep the spacing between the " \
+            "notes even three times in a row, then gradually increase the tempo."
         )
     elif main_focus == "chords":
+        overall_message = "You've got a good understanding of the melody and the rhythm. " if main_focus_score >= 0.70 else "Good progress! "
         focus_message = (
-            "For your next attempt, choose one difficult chord and aim to make " \
-            "all required notes sound together correctly three times in a row. " \
-            "Then gradually connect it to the surrounding passage."
+            overall_message + "Let's focus on chord accuracy next. Choose one difficult chord " \
+            "and adjust your hand position. Aim to make all required notes " \
+            "sound together correctly three times in a row."
         )
     else:
-        focus_message = ("For your next attempt, choose one short challenging section and " \
-            "aim to play it confidently three times in a row.")
+        # scores was empty: no reference notes/chords to evaluate at all.
+        focus_message = "No reference notes or chords were found to evaluate."
 
     all_messages = [
         "Practice Summary",

@@ -1149,28 +1149,32 @@ def polished_feedback_message(event_details, response_events, ref_events, stats,
             )
         else:
             current_performance_messages.append(
-                "Note accuracy needs more focused practice. " 
-                "Practice one short passage at a slower tempo, " 
-                "check each note carefully, and then speed up to the correct tempo. " \
-                "Move on to the next passage when you feel confident with the current one."
+                "Note accuracy needs more practice. " 
+                "Practice each short passage at a slower tempo, " 
+                "check each note carefully, mind the fingering during practice. " \
+                "Then move on to the next passage when you feel confident with the current one."
             )
 
     if note_timing_accuracy is not None:
         if note_timing_accuracy >= 0.90:
             current_performance_messages.append(
-                "Great timing consistency between notes! "
+                "Great timing consistency between notes, you've got a " \
+                "good sense of onset time and rhythm!"
             )
         elif note_timing_accuracy >= 0.70:
             current_performance_messages.append(
                 "The spacing between notes was mostly consistent, although " \
                 "a few passages were less steady. Practicing these sections " \
-                "with a slower, regular beat may help make the rhythm more even."
+                "with a slower, regular beat may help you play each note at the right time " \
+                "and hence make the rhythm more steady."
             )
         else:
             current_performance_messages.append(
-                "Timing consistency needs more practice, listen carefully " \
+                "Timing consistency needs more practice. You can slow down in your " \
+                "next practice session and listen carefully " \
                 "for notes that arrive too early or too late. " \
-                "You may find it helpful to practice with a metronome. "
+                "A metronome can help you play each note at the right time " \
+                "and hence make the rhythm more steady." 
             )
         # do not comment on duration for now, as it may be due to transcription errors
 
@@ -1179,18 +1183,19 @@ def polished_feedback_message(event_details, response_events, ref_events, stats,
             current_performance_messages.append(
                             "Simultaneous notes are often hard to play correctly at the beginning. " \
                             "Pay attention to the fingering and hand position when playing these chords. " \
-                            "Practice those sections slowly and carefully, and check that all required notes sound together. " \
-                            "You may find it helpful to practice each chord separately before reconnecting the surrounding passage."
+                            "You may find it helpful to practice each chord separately first and make sure " \
+                            "all required notes sound together. Then you can reconnect the chords to" \
+                            "their surronding sections and practice at a slower tempo carefully. "
                         )
         elif median_chord_accuracy >= 0.90:
             current_performance_messages.append(
-                "Nice! The chord notes were accurate overall."
+                "Nice! The chords were played accurately overall."
             )
         elif median_chord_accuracy >= 0.70:
             current_performance_messages.append(
-                "Many chord notes were correct, although some chords included " \
-                "missing or additional notes. Practice each difficult chord " \
-                "separately and check that all required notes sound together."
+                "Most chord notes were played correctly, although some chords contain " \
+                "missing or additional notes. It's a good idea to practice each difficult chord " \
+                "separately and make sure that all required notes sound together."
             )
 
     # overall tempo feedback based on timing and duration scale factors
@@ -1199,18 +1204,20 @@ def polished_feedback_message(event_details, response_events, ref_events, stats,
     duration_scale = stats["duration_scale"]
     if timing_scale > global_slow_threshold:
         tempo_message = (
-            "Your overall tempo was slower than the reference. It is a good idea to " \
-            "play slowly while learning, so focus on maintaining a steady tempo " \
-            "before gradually increasing the speed."
+            "Your overall tempo was slower than the reference. This is not necessarily " \
+            "a problem, and it is a good idea to play slowly while learning. " \
+            "Whatever tempo you choose, aim to keep the rhythm steady throughout the performance."
         )
     elif timing_scale < global_fast_threshold:
         tempo_message = (
-            "Your overall tempo was faster than the reference. Try slowing " \
-            "down slightly so that each note can be played clearly and the rhythm remains controlled."
+            "Your overall tempo was faster than the reference. This is not necessarily " \
+            "a problem. Althogh you are confident in this piece, remember to play each " \
+            "note clearly and make surethe rhythm remains steady."
         )
     else:
         tempo_message = (
-            "Well done! Your overall tempo was close to the reference. Keep up the good work!"
+            "Well done! Your overall tempo was close to the reference. Keep up the good work! " \
+            "Don't forget to keep the rhythm steady throughout the performance."
         )
 
     # missing and extra

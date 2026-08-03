@@ -140,3 +140,4 @@ reports/
 # large dataset
 /data/asap-dataset
 /data/PianoVAM_v1
+/data/real_recordings

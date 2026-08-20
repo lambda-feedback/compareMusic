@@ -346,7 +346,7 @@ def event_alignment_ED(response_events, ref_events, gap_penalty=DEFAULT_GAP_PENA
         gap_penalty: cost of leaving an event unaligned (insertion/deletion)
 
     Returns:
-        operations: list of operation dicts, same format as event_alignment_ED()
+        operations: list of operation dicts
         D: accumulated cost matrix, shape (N+1, M+1)
     """
     # if a raw note dict with "pitch"/"start"/"duration" but no "event_type" is
@@ -1184,7 +1184,7 @@ def polished_feedback_message(event_details, response_events, ref_events, stats,
                             "Simultaneous notes are often hard to play correctly at the beginning. " \
                             "Pay attention to the fingering and hand position when playing these chords. " \
                             "You may find it helpful to practice each chord separately first and make sure " \
-                            "all required notes sound together. Then you can reconnect the chords to" \
+                            "all required notes sound together. Then you can reconnect the chords to " \
                             "their surronding sections and practice at a slower tempo carefully. "
                         )
         elif median_chord_accuracy >= 0.90:

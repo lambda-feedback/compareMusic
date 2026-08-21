@@ -1185,7 +1185,7 @@ def polished_feedback_message(event_details, response_events, ref_events, stats,
                             "Pay attention to the fingering and hand position when playing these chords. " \
                             "You may find it helpful to practice each chord separately first and make sure " \
                             "all required notes sound together. Then you can reconnect the chords to " \
-                            "their surronding sections and practice at a slower tempo carefully. "
+                            "their surrounding sections and practice at a slower tempo carefully. "
                         )
         elif median_chord_accuracy >= 0.90:
             current_performance_messages.append(

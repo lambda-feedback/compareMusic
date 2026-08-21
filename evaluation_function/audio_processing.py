@@ -77,7 +77,7 @@ def is_audio_input(response):
 # ------------------------------------------------------------------------------
 def load_basic_pitch_model(model_path=ICASSP_2022_MODEL_PATH):
     """
-    Load the Basic Pitch model once.
+    Load the pretrained Basic Pitch model once.
     """
     return Model(model_path)
 
@@ -162,25 +162,33 @@ def remove_leading_extra_notes(notes,
       - at least min_following_notes remain after the gap;
       - the possible performance start is within max_search_seconds.
     """
+    # if there are no notes, return an empty list
     if len(notes) == 0:
         return []
 
+    # sort the notes by onset time
     sorted_notes = sorted(notes, key=lambda note: note["onset"])
     start_index = 0
 
+    # find the first index where the gap to the next note is large enough
     for i in range(len(sorted_notes) - 1):
         current_onset = sorted_notes[i]["onset"]
         next_onset = sorted_notes[i + 1]["onset"]
         gap = next_onset - current_onset
 
-        leading_note_count = i + 1
-        following_note_count = len(sorted_notes) - leading_note_count
+        leading_note_count = i + 1 # number of notes before the gap
+        following_note_count = len(sorted_notes) - leading_note_count # number of notes after the gap
 
+        # check if the gap is large enough
         is_large_gap = gap >= min_gap_seconds
+        # ensure no. of leading notes does not exceed the maximum allowed
         has_few_leading_notes = leading_note_count <= max_leading_notes
+        # ensure no. of following notes meets the minimum required
         has_enough_following_notes = following_note_count >= min_following_notes
+        # search the first few seconds only, to avoid removing valid early notes in long performances
         is_near_beginning = next_onset <= max_search_seconds
 
+        # if all conditions are met, move on to the next note
         if (
             is_large_gap
             and has_few_leading_notes
@@ -189,9 +197,9 @@ def remove_leading_extra_notes(notes,
         ):
             start_index = i + 1
 
-    processed_notes = []
+    processed_notes = [] # create a new list to hold the processed notes i.e. notes to be kept
 
-    for note in sorted_notes[start_index:]:
+    for note in sorted_notes[start_index:]: # iterate over the notes starting from the determined start index
         processed_notes.append(note.copy())
 
     return processed_notes
@@ -218,7 +226,7 @@ def merge_same_pitch_notes(notes,
     notes_by_pitch = {}
     for note in notes:
         pitch = note["pitch"]
-        # initialize the list for this pitch if it doesn't exist
+        # create a new list for this pitch if it doesn't exist in the dictionary yet
         if pitch not in notes_by_pitch: 
             notes_by_pitch[pitch] = []
         # append a copy of the note to avoid modifying the original
@@ -226,6 +234,7 @@ def merge_same_pitch_notes(notes,
 
     merged_notes = []
     for pitch_notes in notes_by_pitch.values():
+        # sort the notes by onset time to ensure they are processed in order
         pitch_notes = sorted(pitch_notes, key=lambda note: note["onset"])
         current_note = pitch_notes[0].copy()
 
@@ -243,9 +252,11 @@ def merge_same_pitch_notes(notes,
             should_merge = is_close_in_time and looks_like_fragment
 
             if should_merge:
+                # Merge the two notes by updating the offset and duration of the current note
                 new_offset = max(current_note["offset"], next_note["offset"])
                 current_note["offset"] = new_offset
                 current_note["duration"] = new_offset - current_note["onset"]
+                # If both notes have a velocity, take the maximum to represent the merged note
                 if ("velocity" in current_note) and ("velocity" in next_note):
                     current_note["velocity"] = max(current_note["velocity"], next_note["velocity"])
             else:

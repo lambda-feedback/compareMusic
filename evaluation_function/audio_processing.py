@@ -26,9 +26,9 @@ from basic_pitch.inference import Model, predict
 # Parameters
 # ------------------------------------------------------------------------------
 # configuration values for the Basic Pitch model (decoder)
-ONSET_THRESHOLD = 0.7 # Minimum amplitude of an onset activation to be considered an onset
-FRAME_THRESHOLD = 0.2 # Minimum amplitude of a frame activation for a note to remain 'on'
-MINIMUM_NOTE_LENGTH = 75.0 # The minimum allowed note length in frames
+ONSET_THRESHOLD = 0.6 # Minimum amplitude of an onset activation to be considered an onset
+FRAME_THRESHOLD = 0.3 # Minimum amplitude of a frame activation for a note to remain 'on'
+MINIMUM_NOTE_LENGTH = 50.0 # The minimum allowed note length in frames
 MELODIA_TRICK = False # Whether to use the "Melodia trick" to improve pitch estimation for monophonic instruments
 # configuration values for the post-processing layer
 MIN_GAP_SECONDS = 0.5

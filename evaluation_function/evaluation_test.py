@@ -12,12 +12,13 @@ Sections
 1. Tests for helper functions get_pitch_class_set, identify_chord_name, compute_chord_accuracy
 2. Tests for normalize_start_times
 3. Tests for group_notes_into_events
-4. Tests for compute_note_cost and compute_event_cost
+4. Tests for build_cost_matrix
 5. Tests for event_alignment_ED  (covers note-only, chord-only cases and mixed cases)
 6. Tests for estimate_global_timing and estimate_global_duration_scale
-7. Tests for event_level_feedback and compute_stats  (covers note-only and chord-only cases)
+7. Tests for compare_performance_ED (full pipeline: alignment → event-level feedback → stats)
 8. Tests for evaluation_function (Lambda Feedback integration)
 9. Tests for parameter overrides
+10. Bulk tests using longer MIDI sequences
 """
 
 
@@ -458,7 +459,7 @@ class TestTrendEstimations(unittest.TestCase):
         assert dur_scale == 1.0
 
 
-# 7. Tests for event_level_feedback and compute_stats
+# 7. Tests for compare_performance_ED (full pipeline: alignment → event-level feedback → stats)
 # ------------------------------------------------------------------------------
 class TestComparePerformanceED(unittest.TestCase):
  

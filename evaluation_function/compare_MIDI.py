@@ -11,9 +11,8 @@ Pipeline overview (called in order by compare_performance_ED):
               estimate_global_duration_scale
     Step 3 -- event_level_feedback      (note/chord-level feedback)
     Step 4 -- compute_stats             (summary counts)
-    Step 5 -- generate_feedback_message (human-readable text)
-              polished_feedback_message (polished version of human-readable text)
-    Step 6 -- is_correct                (overall pass/fail judgement)
+    Step 5 -- version 1: generate_feedback_message (human-readable text)
+              version 2: polished_feedback_message (polished version of human-readable text)
 """
 
 
@@ -23,7 +22,7 @@ from collections import Counter
 # Default thresholds / parameters
 # Teachers can override any of these via the params dict in evaluation_function.
 # ------------------------------------------------------------------------------
-# Gap penalty: cost of leaving a note unaligned (insertion/deletion)
+# Gap penalty: cost of leaving an event unaligned (insertion/deletion)
 DEFAULT_GAP_PENALTY = 6
 
 # Timing: |response_start - predicted_start| / Inter-Onset Interval (IOI) must be below this.
@@ -86,11 +85,12 @@ def identify_chord_name(notes):
     pitch_classes = get_pitch_class_set(notes)
  
     for root_pc in pitch_classes:
+        # Normalise the pitch classes relative to the root note, so that the root is 0.
         normalised = set((pc - root_pc) % 12 for pc in pitch_classes)
         for chord_type, template in CHORD_TEMPLATES.items():
             if normalised == template:
-                root_name = PITCH_CLASS_NAMES[root_pc]
-                return root_name + " " + chord_type
+                root_name = PITCH_CLASS_NAMES[root_pc] # convert root pitch class to name
+                return root_name + " " + chord_type # return e.g. "C major"
  
     return "unknown chord"
  
@@ -98,7 +98,7 @@ def compute_chord_accuracy(ref_notes, res_notes):
     """
     Compute the chord accuracy score A (modified Devaney's method), but
     use the actual MIDI pitch (with octave) instead of pitch class, 
-    so that the score is sensitive to octave errors.: 
+    so that the score is sensitive to octave errors:
     A = (C - I + |y|) / (2 * |y|)
     where:
         C = number of correctly matched notes
@@ -117,8 +117,8 @@ def compute_chord_accuracy(ref_notes, res_notes):
         missing_pitches: sorted list of missing MIDI pitches
         extra_pitches: sorted list of extra MIDI pitches
     """
-    ref_counts = Counter(note["pitch"] for note in ref_notes)
-    res_counts = Counter(note["pitch"] for note in res_notes)
+    ref_counts = Counter(note["pitch"] for note in ref_notes) # count each pitch in the reference chord
+    res_counts = Counter(note["pitch"] for note in res_notes) # count each pitch in the response chord
 
     correct_pitches = []
     missing_pitches = []
@@ -126,28 +126,28 @@ def compute_chord_accuracy(ref_notes, res_notes):
 
     # For every distinct pitch on either side, match up copies one-to-one.
     # Any leftover ref copies are missing; any leftover res copies are extra.
-    all_pitches = sorted(set(ref_counts) | set(res_counts))
+    all_pitches = sorted(set(ref_counts) | set(res_counts)) # union of all distinct pitches in both chords
     for pitch in all_pitches:
-        matched = min(ref_counts[pitch], res_counts[pitch])
-        correct_pitches.extend([pitch] * matched)
-        if ref_counts[pitch] > matched:
+        matched = min(ref_counts[pitch], res_counts[pitch]) # number of copies that can be matched
+        correct_pitches.extend([pitch] * matched) 
+        if ref_counts[pitch] > matched: # if there are more copies in the reference than matched, they are missing
             missing_pitches.extend(
                 [pitch] * (ref_counts[pitch] - matched)
             )
-        if res_counts[pitch] > matched:
+        if res_counts[pitch] > matched: # if there are more copies in the response than matched, they are extra
             extra_pitches.extend(
                 [pitch] * (res_counts[pitch] - matched)
             )
 
-    C = len(correct_pitches)
-    I = len(extra_pitches)
-    ref_size = len(ref_notes)   # total note count, repeats included
+    C = len(correct_pitches) # number of correctly matched notes
+    I = len(extra_pitches) # number of extra notes played
+    ref_size = len(ref_notes) # total note count, repeats included
 
     if ref_size == 0:
         accuracy = 0.0
     else:
-        accuracy = (C - I + ref_size) / (2.0 * ref_size)
-        accuracy = max(0.0, min(1.0, accuracy))
+        accuracy = (C - I + ref_size) / (2.0 * ref_size) 
+        accuracy = max(0.0, min(1.0, accuracy)) # clamp to [0, 1] in case of negative values
 
     return accuracy, correct_pitches, missing_pitches, extra_pitches
 
@@ -267,8 +267,8 @@ def group_notes_into_events(notes, chord_onset_window=DEFAULT_CHORD_ONSET_WINDOW
 def build_cost_matrix(response_events, ref_events, gap_penalty=DEFAULT_GAP_PENALTY):
     """
     Precompute the full (N x M) event-alignment cost matrix using vectorised
-    NumPy broadcasting, instead of compute event cost one at a
-    time inside a Python loop. This also removes the redundant cost
+    NumPy broadcasting, instead of computing event cost one at a
+    time inside a loop. This also removes the redundant cost
     computation that used to happen a second time during backtracking.
 
     Args:
@@ -288,6 +288,7 @@ def build_cost_matrix(response_events, ref_events, gap_penalty=DEFAULT_GAP_PENAL
     res_is_chord = np.array([event["event_type"] == "chord" for event in response_events])
     ref_is_chord = np.array([event["event_type"] == "chord" for event in ref_events])
 
+    # For note events, extract the pitch; for chords, use 0 as a placeholder.
     res_pitch = np.array([
         event["notes"][0]["pitch"] if event["event_type"] == "note" else 0
         for event in response_events
@@ -305,24 +306,24 @@ def build_cost_matrix(response_events, ref_events, gap_penalty=DEFAULT_GAP_PENAL
     # then compute Hamming distance for every pair using broadcasting.
     res_pitch_vector = np.zeros((N, 12), dtype=int)
     for i in range(N):
-        if res_is_chord[i]:
-            for note in response_events[i]["notes"]:
-                res_pitch_vector[i, note["pitch"] % 12] = 1
+        if res_is_chord[i]: # only fill in the pitch vector for chords
+            for note in response_events[i]["notes"]: # iterate over all notes in the chord
+                res_pitch_vector[i, note["pitch"] % 12] = 1 # set the corresponding pitch class to 1
 
     ref_pitch_vector = np.zeros((M, 12), dtype=int)
     for j in range(M):
         if ref_is_chord[j]:
             for note in ref_events[j]["notes"]:
-                ref_pitch_vector[j, note["pitch"] % 12] = 1
+                ref_pitch_vector[j, note["pitch"] % 12] = 1 
 
     # (N, 1, 12) vs (1, M, 12) broadcasts to (N, M, 12); summing the last
     # axis gives the Hamming distance for every (response, ref) pair at once.
-    differs = res_pitch_vector.reshape(N, 1, 12) != ref_pitch_vector.reshape(1, M, 12)
-    chord_cost_matrix = differs.sum(axis=2)
+    differs = (res_pitch_vector.reshape(N, 1, 12) != ref_pitch_vector.reshape(1, M, 12)) # shape (N, M, 12)
+    chord_cost_matrix = differs.sum(axis=2) # sum over the last axis to get the Hamming distance for each pair
 
     # Type-mismatch mask: True where one side is a note and the other a chord.
-    type_mismatch = res_is_chord.reshape(N, 1) != ref_is_chord.reshape(1, M)
-    both_chords = res_is_chord.reshape(N, 1) & ref_is_chord.reshape(1, M)
+    type_mismatch = (res_is_chord.reshape(N, 1) != ref_is_chord.reshape(1, M))
+    both_chords = (res_is_chord.reshape(N, 1) & ref_is_chord.reshape(1, M))
 
     # Combine the three cases -- np.where(condition, true, false)
     cost_matrix = np.where(
@@ -336,9 +337,9 @@ def build_cost_matrix(response_events, ref_events, gap_penalty=DEFAULT_GAP_PENAL
 
 def event_alignment_ED(response_events, ref_events, gap_penalty=DEFAULT_GAP_PENALTY):
     """
-    Same algorithm as the production event_alignment_ED(), but the N x M
-    substitution costs are looked up from a precomputed cost matrix instead
-    of being recomputed on every DP cell and again during backtracking.
+    Aligns response and reference events using edit distance. 
+    Costs are precomputed once via build_cost_matrix() for efficiency, 
+    rather than recomputed inside the loop and during backtracking
 
     Args:
         response_events: list of event dicts from group_notes_into_events
@@ -592,7 +593,7 @@ def event_level_feedback(operations, response_events, ref_events,
             "duration_abs_diff" -> float (seconds) or None
             "duration_relative_diff" -> float or None
     """
-    # Compute IOI for each reference note: ioi[m] = ref_notes[m]["start"] - ref_notes[m-1]["start"]
+    # Compute IOI for each reference note: ioi[m] = ref_events[m]["start"] - ref_events[m-1]["start"]
     # floor at 0.05s to avoid division by zero issues
     ref_ioi = [None] * len(ref_events)
     for m in range(1, len(ref_events)):
@@ -765,7 +766,8 @@ def compute_stats(event_level_results, ref_events, timing_scale=1.0,
     """
     note_events  = [n for n in event_level_results if n["event_type"] == "note"]
     chord_events = [ch for ch in event_level_results if ch["event_type"] == "chord"]
-    
+
+    # Count the total number of notes and chords in the reference events
     ref_note_count  = sum(1 for n in ref_events if n["event_type"] == "note")
     ref_chord_count = sum(1 for ch in ref_events if ch["event_type"] == "chord")
     

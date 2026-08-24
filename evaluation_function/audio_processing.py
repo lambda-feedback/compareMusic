@@ -6,11 +6,9 @@ Basic Pitch, from raw audio all the way to notes ready for
 compare_performance_ED.
 
 Pipeline overview:
-    1. loading the Basic Pitch model
-    2. running the model on one audio file (or re-decoding already
-     computed raw model output) into a list of note dictionaries
-    3. post-processing 
-    4. converting notes into the format compare_performance_ED expects
+    1. run Basic Pitch
+    2. optionally apply targeted post-processing steps
+    3. return notes ready to hand to compare_MIDI.py
 """
 
 
@@ -30,6 +28,7 @@ ONSET_THRESHOLD = 0.6 # Minimum amplitude of an onset activation to be considere
 FRAME_THRESHOLD = 0.3 # Minimum amplitude of a frame activation for a note to remain 'on'
 MINIMUM_NOTE_LENGTH = 50.0 # The minimum allowed note length in frames
 MELODIA_TRICK = False # Whether to use the "Melodia trick" to improve pitch estimation for monophonic instruments
+
 # configuration values for the post-processing layer
 MIN_GAP_SECONDS = 0.5
 MAX_LEADING_NOTES = 3
@@ -46,7 +45,7 @@ MIDI_EXTENSIONS = [".mid", ".midi"]
 
 
 # Helper function to check if the response is audio
-# ------------------------------------------------------------------------------
+# ---------------------------------------------------------------------
 def is_audio_input(response):
     """
     Return True if response looks like an audio file that needs to go
@@ -74,7 +73,7 @@ def is_audio_input(response):
 
 
 # Load the model
-# ------------------------------------------------------------------------------
+# ---------------------------------------------------------------------
 def load_basic_pitch_model(model_path=ICASSP_2022_MODEL_PATH):
     """
     Load the pretrained Basic Pitch model once.
@@ -181,9 +180,9 @@ def remove_leading_extra_notes(notes,
 
         # check if the gap is large enough
         is_large_gap = gap >= min_gap_seconds
-        # ensure no. of leading notes does not exceed the maximum allowed
+        # ensure number of leading notes does not exceed the maximum allowed
         has_few_leading_notes = leading_note_count <= max_leading_notes
-        # ensure no. of following notes meets the minimum required
+        # ensure number of following notes meets the minimum required
         has_enough_following_notes = following_note_count >= min_following_notes
         # search the first few seconds only, to avoid removing valid early notes in long performances
         is_near_beginning = next_onset <= max_search_seconds
@@ -198,8 +197,8 @@ def remove_leading_extra_notes(notes,
             start_index = i + 1
 
     processed_notes = [] # create a new list to hold the processed notes i.e. notes to be kept
-
-    for note in sorted_notes[start_index:]: # iterate over the notes starting from the determined start index
+    # iterate over the notes starting from the determined start index
+    for note in sorted_notes[start_index:]: 
         processed_notes.append(note.copy())
 
     return processed_notes
@@ -244,7 +243,7 @@ def merge_same_pitch_notes(notes,
             next_duration = next_note["offset"] - next_note["onset"]
             # Check if the gap is within the allowed range
             is_close_in_time = (-max_gap_seconds <= gap <= max_gap_seconds)
-            # Check if at least one of the notes is short enough to be considered a fragment
+            # Check if both notes are short enough to be considered a fragment
             looks_like_fragment = (
                 current_duration <= max_fragment_duration
                 and next_duration <= max_fragment_duration
@@ -307,8 +306,8 @@ def build_compare_midi_input(notes, duration_key="duration"):
 # ---------------------------------------------------------------------
 def transcription_pipeline(audio_path, model, apply_postprocessing=True):
     """
-    Full production pipeline: run Basic Pitch, optionally apply Layer 2
-    post-processing, and return notes ready to hand to compare_MIDI.py.
+    Full production pipeline: run Basic Pitch, optionally apply post-processing, 
+    and return notes ready to hand to compare_MIDI.py.
 
     Returns (compare_midi_input, predicted_notes, runtime_seconds).
     """

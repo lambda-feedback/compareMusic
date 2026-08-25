@@ -134,7 +134,10 @@ dmypy.json
 # Test reports
 reports/
 
-# PianoVAM dataset
-notebooks/data/
+# output data
+/outputs
 
-notebooks/outputs
+# large dataset
+/data/asap-dataset
+/data/PianoVAM_v1
+/data/real_recordings

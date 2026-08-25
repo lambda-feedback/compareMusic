@@ -68,6 +68,7 @@ def get_note_match_info(sample_id, metadata_df, audio_dir, midi_dir,
         predicted_notes, offset_key="offset"
     )
 
+    # Use mir_eval to match predicted notes to reference notes, allowing a small onset tolerance.
     matching = mir_eval.transcription.match_notes(
         reference_intervals,
         reference_pitches,
@@ -77,6 +78,7 @@ def get_note_match_info(sample_id, metadata_df, audio_dir, midi_dir,
         offset_ratio=None,
     )
 
+    # The matching is a list of (reference_index, predicted_index) pairs.
     matched_reference_indices = set(pair[0] for pair in matching)
     matched_predicted_indices = set(pair[1] for pair in matching)
 
@@ -119,7 +121,9 @@ def summarise_fp_fn_over_train_set(train_samples, metadata_df, audio_dir,
         matched_reference_indices = match_info["matched_reference_indices"]
         matched_predicted_indices = match_info["matched_predicted_indices"]
 
+        # Sort predicted notes by onset time
         sorted_predicted_notes = sorted(predicted_notes, key=lambda note: note["onset"])
+        # Create a list of matched predicted notes for easier pattern analysis.
         matched_predicted_notes = [predicted_notes[i] for i in matched_predicted_indices]
 
         if len(reference_notes) > 0:
@@ -147,12 +151,16 @@ def summarise_fp_fn_over_train_set(train_samples, metadata_df, audio_dir,
                     same_pitch = (other_note["pitch"] == note["pitch"])
                     is_before = (other_note["offset"] <= note["onset"])
                     gap = note["onset"] - other_note["offset"]
+                    # Check if there is a nearby predicted note with the same pitch that ends 
+                    # before this note starts, and is within max_gap_seconds.
                     if same_pitch and is_before and (0 <= gap <= max_gap_seconds):
                         has_fragment_pattern = True
 
                 has_harmonic_interval_pattern = False
                 for matched_note in matched_predicted_notes:
                     pitch_gap = abs(note["pitch"] - matched_note["pitch"])
+                    # Check if the pitch gap is a common harmonic interval (perfect fifth, octave, 
+                    # or compound intervals) and if the notes overlap in time within the onset window.
                     if pitch_gap in interval_sizes and notes_overlap(note, matched_note, tolerance=onset_window_seconds):
                         has_harmonic_interval_pattern = True
 
@@ -166,12 +174,13 @@ def summarise_fp_fn_over_train_set(train_samples, metadata_df, audio_dir,
                     neither_pattern = neither_pattern + 1
 
                 duration = note["offset"] - note["onset"]
+                # Check if the extra note is short
                 if duration < short_note_seconds:
                     short_extra = short_extra + 1
-
+                # Check if the extra note starts before the first reference note.
                 if note["onset"] < first_reference_onset:
                     extra_at_beginning = extra_at_beginning + 1
-
+                # Check if there are multiple reference notes starting near this extra note's onset.
                 nearby_reference_count = count_nearby_reference_notes(
                     reference_notes, note["onset"], onset_window_seconds
                 )
@@ -190,11 +199,15 @@ def summarise_fp_fn_over_train_set(train_samples, metadata_df, audio_dir,
                 total_missing = total_missing + 1
 
                 duration = note["frame_offset"] - note["onset"]
+                # Check if the missing note is short.
                 if duration < short_note_seconds:
                     short_missing = short_missing + 1
 
                 has_nearby_same_pitch_reference = False
                 for other_index, other_note in enumerate(reference_notes):
+                    # Check if there is another reference note with the same pitch 
+                    # that starts within max_gap_seconds of this missing note's onset,
+                    # mark this missing note as having a repeated pitch nearby.
                     if other_index != reference_index:
                         same_pitch = other_note["pitch"] == note["pitch"]
                         onset_gap = abs(other_note["onset"] - note["onset"])
@@ -203,9 +216,13 @@ def summarise_fp_fn_over_train_set(train_samples, metadata_df, audio_dir,
                 if has_nearby_same_pitch_reference:
                     repeated_pitch_missing = repeated_pitch_missing + 1
 
+                # Check if there are multiple reference notes starting near this missing note's onset, 
+                # which may indicate it's part of a chord or dense region.
                 nearby_reference_count = count_nearby_reference_notes(
                     reference_notes, note["onset"], onset_window_seconds
                 )
+                # If there are two or more reference notes starting near this missing note's onset,
+                # mark it as chord-related missing.
                 if nearby_reference_count >= 2:
                     chord_related_missing = chord_related_missing + 1
 

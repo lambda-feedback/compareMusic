@@ -6,11 +6,9 @@ Basic Pitch, from raw audio all the way to notes ready for
 compare_performance_ED.
 
 Pipeline overview:
-    1. loading the Basic Pitch model
-    2. running the model on one audio file (or re-decoding already
-     computed raw model output) into a list of note dictionaries
-    3. post-processing 
-    4. converting notes into the format compare_performance_ED expects
+    1. run Basic Pitch
+    2. optionally apply targeted post-processing steps
+    3. return notes ready to hand to compare_MIDI.py
 """
 
 
@@ -26,10 +24,11 @@ from basic_pitch.inference import Model, predict
 # Parameters
 # ------------------------------------------------------------------------------
 # configuration values for the Basic Pitch model (decoder)
-ONSET_THRESHOLD = 0.7 # Minimum amplitude of an onset activation to be considered an onset
-FRAME_THRESHOLD = 0.2 # Minimum amplitude of a frame activation for a note to remain 'on'
-MINIMUM_NOTE_LENGTH = 75.0 # The minimum allowed note length in frames
+ONSET_THRESHOLD = 0.6 # Minimum amplitude of an onset activation to be considered an onset
+FRAME_THRESHOLD = 0.3 # Minimum amplitude of a frame activation for a note to remain 'on'
+MINIMUM_NOTE_LENGTH = 50.0 # The minimum allowed note length in frames
 MELODIA_TRICK = False # Whether to use the "Melodia trick" to improve pitch estimation for monophonic instruments
+
 # configuration values for the post-processing layer
 MIN_GAP_SECONDS = 0.5
 MAX_LEADING_NOTES = 3
@@ -46,7 +45,7 @@ MIDI_EXTENSIONS = [".mid", ".midi"]
 
 
 # Helper function to check if the response is audio
-# ------------------------------------------------------------------------------
+# ---------------------------------------------------------------------
 def is_audio_input(response):
     """
     Return True if response looks like an audio file that needs to go
@@ -74,10 +73,10 @@ def is_audio_input(response):
 
 
 # Load the model
-# ------------------------------------------------------------------------------
+# ---------------------------------------------------------------------
 def load_basic_pitch_model(model_path=ICASSP_2022_MODEL_PATH):
     """
-    Load the Basic Pitch model once.
+    Load the pretrained Basic Pitch model once.
     """
     return Model(model_path)
 
@@ -162,25 +161,33 @@ def remove_leading_extra_notes(notes,
       - at least min_following_notes remain after the gap;
       - the possible performance start is within max_search_seconds.
     """
+    # if there are no notes, return an empty list
     if len(notes) == 0:
         return []
 
+    # sort the notes by onset time
     sorted_notes = sorted(notes, key=lambda note: note["onset"])
     start_index = 0
 
+    # find the first index where the gap to the next note is large enough
     for i in range(len(sorted_notes) - 1):
         current_onset = sorted_notes[i]["onset"]
         next_onset = sorted_notes[i + 1]["onset"]
         gap = next_onset - current_onset
 
-        leading_note_count = i + 1
-        following_note_count = len(sorted_notes) - leading_note_count
+        leading_note_count = i + 1 # number of notes before the gap
+        following_note_count = len(sorted_notes) - leading_note_count # number of notes after the gap
 
+        # check if the gap is large enough
         is_large_gap = gap >= min_gap_seconds
+        # ensure number of leading notes does not exceed the maximum allowed
         has_few_leading_notes = leading_note_count <= max_leading_notes
+        # ensure number of following notes meets the minimum required
         has_enough_following_notes = following_note_count >= min_following_notes
+        # search the first few seconds only, to avoid removing valid early notes in long performances
         is_near_beginning = next_onset <= max_search_seconds
 
+        # if all conditions are met, move on to the next note
         if (
             is_large_gap
             and has_few_leading_notes
@@ -189,9 +196,9 @@ def remove_leading_extra_notes(notes,
         ):
             start_index = i + 1
 
-    processed_notes = []
-
-    for note in sorted_notes[start_index:]:
+    processed_notes = [] # create a new list to hold the processed notes i.e. notes to be kept
+    # iterate over the notes starting from the determined start index
+    for note in sorted_notes[start_index:]: 
         processed_notes.append(note.copy())
 
     return processed_notes
@@ -218,7 +225,7 @@ def merge_same_pitch_notes(notes,
     notes_by_pitch = {}
     for note in notes:
         pitch = note["pitch"]
-        # initialize the list for this pitch if it doesn't exist
+        # create a new list for this pitch if it doesn't exist in the dictionary yet
         if pitch not in notes_by_pitch: 
             notes_by_pitch[pitch] = []
         # append a copy of the note to avoid modifying the original
@@ -226,6 +233,7 @@ def merge_same_pitch_notes(notes,
 
     merged_notes = []
     for pitch_notes in notes_by_pitch.values():
+        # sort the notes by onset time to ensure they are processed in order
         pitch_notes = sorted(pitch_notes, key=lambda note: note["onset"])
         current_note = pitch_notes[0].copy()
 
@@ -235,7 +243,7 @@ def merge_same_pitch_notes(notes,
             next_duration = next_note["offset"] - next_note["onset"]
             # Check if the gap is within the allowed range
             is_close_in_time = (-max_gap_seconds <= gap <= max_gap_seconds)
-            # Check if at least one of the notes is short enough to be considered a fragment
+            # Check if both notes are short enough to be considered a fragment
             looks_like_fragment = (
                 current_duration <= max_fragment_duration
                 and next_duration <= max_fragment_duration
@@ -243,9 +251,11 @@ def merge_same_pitch_notes(notes,
             should_merge = is_close_in_time and looks_like_fragment
 
             if should_merge:
+                # Merge the two notes by updating the offset and duration of the current note
                 new_offset = max(current_note["offset"], next_note["offset"])
                 current_note["offset"] = new_offset
                 current_note["duration"] = new_offset - current_note["onset"]
+                # If both notes have a velocity, take the maximum to represent the merged note
                 if ("velocity" in current_note) and ("velocity" in next_note):
                     current_note["velocity"] = max(current_note["velocity"], next_note["velocity"])
             else:
@@ -296,8 +306,8 @@ def build_compare_midi_input(notes, duration_key="duration"):
 # ---------------------------------------------------------------------
 def transcription_pipeline(audio_path, model, apply_postprocessing=True):
     """
-    Full production pipeline: run Basic Pitch, optionally apply Layer 2
-    post-processing, and return notes ready to hand to compare_MIDI.py.
+    Full production pipeline: run Basic Pitch, optionally apply post-processing, 
+    and return notes ready to hand to compare_MIDI.py.
 
     Returns (compare_midi_input, predicted_notes, runtime_seconds).
     """

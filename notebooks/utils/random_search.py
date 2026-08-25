@@ -55,11 +55,14 @@ def run_random_search(train_samples, parameter_sets, basic_pitch_model,
     Returns basic_pitch_model, since it may be replaced with a fresh
     model object partway through the search.
     """
+    # Load the sample_ids that have already been processed, so we can skip them.
     completed_sample_ids = load_completed_sample_ids(progress_path)
     remaining_samples = train_samples[
         ~train_samples["sample_id"].astype(str).isin(completed_sample_ids)
     ]
 
+    # Loop over every sample in the train split, and evaluate every
+    # parameter configuration against it.
     for sample_index, (row_index, sample) in enumerate(
         tqdm(remaining_samples.iterrows(), total=len(remaining_samples), desc="Random search")
     ):
@@ -69,9 +72,9 @@ def run_random_search(train_samples, parameter_sets, basic_pitch_model,
 
         sample_rows = []
         for config_id, config in enumerate(parameter_sets):
-            predicted_notes = decode_model_output(model_output, config)
-            metrics = evaluate_note_transcription(reference_notes, predicted_notes)
-
+            predicted_notes = decode_model_output(model_output, config) # decode the raw model output into note events using the current parameter configuration
+            metrics = evaluate_note_transcription(reference_notes, predicted_notes) # evaluate the predicted notes against the ground truth notes
+            # create a row dictionary to store the evaluation results for the current sample and configuration
             row = {"config_id": config_id, "sample_id": sample["sample_id"]}
             row.update(config)
             row.update(metrics)
@@ -85,7 +88,7 @@ def run_random_search(train_samples, parameter_sets, basic_pitch_model,
 
         # Release this sample's raw model output before moving on.
         del model_output
-        gc.collect()
+        gc.collect() # Force garbage collection to free memory used by the raw model output, which can be large and is no longer needed after evaluation.
 
         # Periodically recreate the Basic Pitch model object.
         # TensorFlow keeps caching a new computation graph every time
@@ -106,8 +109,10 @@ def summarise_random_search_results(progress_path):
     Load the full per-sample search log and aggregate it into one
     row per configuration, sorted best-first by note_f1_no_offset.
     """
-    search_details = pd.read_csv(progress_path)
+    search_details = pd.read_csv(progress_path) # load the full per-sample search log from the CSV file at progress_path
 
+    # Group by configuration parameters and compute the mean of the 
+    # evaluation metrics for each configuration across all samples
     random_search_results = (
         search_details
         .groupby([

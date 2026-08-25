@@ -66,8 +66,7 @@ def transcribe_audio_cached(cache_dir, sample_id, audio_path, model, **config):
     """
     Return cached predicted notes for a sample if available, otherwise
     run Basic Pitch once (optionally with non-default decoding
-    parameters passed via config, e.g. onset_threshold=0.7) and cache
-    the result.
+    parameters passed via config) and cache the result.
  
     Returns (predicted_notes, runtime_seconds). runtime_seconds is
     None when the result came from the cache, since no transcription
@@ -122,7 +121,7 @@ def decode_model_output(model_output, config):
     """
     min_note_len = int(round(
         config["minimum_note_length"] / 1000 * AUDIO_SAMPLE_RATE / FFT_HOP
-    ))
+    )) # Convert milliseconds to frames, since model_output_to_notes expects a frame count.
  
     # model_output_to_notes does not modify the raw "note"/"onset"/
     # "contour" arrays in place as long as min_freq/max_freq are left
@@ -252,6 +251,8 @@ def evaluate_on_pianovam(split_name, metadata_df, audio_dir, midi_dir,
 
     rows = []
 
+    # Run Basic Pitch on every sample in the split, using the raw-prediction 
+    # cache to avoid re-running the model on samples already processed.
     for row_index, sample in split_samples.iterrows():
         paths = get_sample_paths(sample, audio_dir, midi_dir, tsv_dir)
         reference_notes = load_ground_truth_notes(paths["tsv"])
@@ -260,6 +261,8 @@ def evaluate_on_pianovam(split_name, metadata_df, audio_dir, midi_dir,
             **BASIC_PITCH_DEFAULT_CONFIG
         )
 
+        # Evaluate the predicted notes against the ground truth using both mir_eval metrics 
+        # and compareMusic alignment stats.
         transcription_metrics = evaluate_note_transcription(reference_notes, predicted_notes)
         transcription_output = analyse_transcription_output(reference_notes, predicted_notes)
 
@@ -291,7 +294,9 @@ def evaluate_new_configuration_on_pianovam(config, samples_df, audio_dir,
     """
     rows = []
     predictions_by_sample_id = {}
- 
+
+    # Run Basic Pitch on every sample in the split, using the specified configuration 
+    # and without caching, since the cache only stores default-configuration predictions.
     for row_index, sample in tqdm(samples_df.iterrows(), total=len(samples_df), desc="Evaluating configuration"):
         paths = get_sample_paths(sample, audio_dir, midi_dir, tsv_dir)
         reference_notes = load_ground_truth_notes(paths["tsv"])
@@ -563,7 +568,8 @@ def match_notes_for_plotting(reference_notes, predicted_notes,
         onset_tolerance=onset_tolerance,
         offset_ratio=offset_ratio,
     )
-
+    
+    # mir_eval returns a list of (reference_index, predicted_index) pairs for matched notes.
     matched_reference_indices = {pair[0] for pair in matching}
     matched_predicted_indices = {pair[1] for pair in matching}
 

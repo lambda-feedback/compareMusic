@@ -11,8 +11,8 @@ Pipeline overview (called in order by compare_performance_ED):
               estimate_global_duration_scale
     Step 3 -- event_level_feedback      (note/chord-level feedback)
     Step 4 -- compute_stats             (summary counts)
-    Step 5 -- generate_feedback_message (human-readable text)
-    Step 6 -- is_correct                (overall pass/fail judgement)
+    Step 5 -- version 1: generate_feedback_message (human-readable text)
+              version 2: polished_feedback_message (polished version of human-readable text)
 """
 
 
@@ -22,7 +22,7 @@ from collections import Counter
 # Default thresholds / parameters
 # Teachers can override any of these via the params dict in evaluation_function.
 # ------------------------------------------------------------------------------
-# Gap penalty: cost of leaving a note unaligned (insertion/deletion)
+# Gap penalty: cost of leaving an event unaligned (insertion/deletion)
 DEFAULT_GAP_PENALTY = 6
 
 # Timing: |response_start - predicted_start| / Inter-Onset Interval (IOI) must be below this.
@@ -85,11 +85,12 @@ def identify_chord_name(notes):
     pitch_classes = get_pitch_class_set(notes)
  
     for root_pc in pitch_classes:
+        # Normalise the pitch classes relative to the root note, so that the root is 0.
         normalised = set((pc - root_pc) % 12 for pc in pitch_classes)
         for chord_type, template in CHORD_TEMPLATES.items():
             if normalised == template:
-                root_name = PITCH_CLASS_NAMES[root_pc]
-                return root_name + " " + chord_type
+                root_name = PITCH_CLASS_NAMES[root_pc] # convert root pitch class to name
+                return root_name + " " + chord_type # return e.g. "C major"
  
     return "unknown chord"
  
@@ -97,7 +98,7 @@ def compute_chord_accuracy(ref_notes, res_notes):
     """
     Compute the chord accuracy score A (modified Devaney's method), but
     use the actual MIDI pitch (with octave) instead of pitch class, 
-    so that the score is sensitive to octave errors.: 
+    so that the score is sensitive to octave errors:
     A = (C - I + |y|) / (2 * |y|)
     where:
         C = number of correctly matched notes
@@ -116,8 +117,8 @@ def compute_chord_accuracy(ref_notes, res_notes):
         missing_pitches: sorted list of missing MIDI pitches
         extra_pitches: sorted list of extra MIDI pitches
     """
-    ref_counts = Counter(note["pitch"] for note in ref_notes)
-    res_counts = Counter(note["pitch"] for note in res_notes)
+    ref_counts = Counter(note["pitch"] for note in ref_notes) # count each pitch in the reference chord
+    res_counts = Counter(note["pitch"] for note in res_notes) # count each pitch in the response chord
 
     correct_pitches = []
     missing_pitches = []
@@ -125,28 +126,28 @@ def compute_chord_accuracy(ref_notes, res_notes):
 
     # For every distinct pitch on either side, match up copies one-to-one.
     # Any leftover ref copies are missing; any leftover res copies are extra.
-    all_pitches = sorted(set(ref_counts) | set(res_counts))
+    all_pitches = sorted(set(ref_counts) | set(res_counts)) # union of all distinct pitches in both chords
     for pitch in all_pitches:
-        matched = min(ref_counts[pitch], res_counts[pitch])
-        correct_pitches.extend([pitch] * matched)
-        if ref_counts[pitch] > matched:
+        matched = min(ref_counts[pitch], res_counts[pitch]) # number of copies that can be matched
+        correct_pitches.extend([pitch] * matched) 
+        if ref_counts[pitch] > matched: # if there are more copies in the reference than matched, they are missing
             missing_pitches.extend(
                 [pitch] * (ref_counts[pitch] - matched)
             )
-        if res_counts[pitch] > matched:
+        if res_counts[pitch] > matched: # if there are more copies in the response than matched, they are extra
             extra_pitches.extend(
                 [pitch] * (res_counts[pitch] - matched)
             )
 
-    C = len(correct_pitches)
-    I = len(extra_pitches)
-    ref_size = len(ref_notes)   # total note count, repeats included
+    C = len(correct_pitches) # number of correctly matched notes
+    I = len(extra_pitches) # number of extra notes played
+    ref_size = len(ref_notes) # total note count, repeats included
 
     if ref_size == 0:
         accuracy = 0.0
     else:
-        accuracy = (C - I + ref_size) / (2.0 * ref_size)
-        accuracy = max(0.0, min(1.0, accuracy))
+        accuracy = (C - I + ref_size) / (2.0 * ref_size) 
+        accuracy = max(0.0, min(1.0, accuracy)) # clamp to [0, 1] in case of negative values
 
     return accuracy, correct_pitches, missing_pitches, extra_pitches
 
@@ -266,8 +267,8 @@ def group_notes_into_events(notes, chord_onset_window=DEFAULT_CHORD_ONSET_WINDOW
 def build_cost_matrix(response_events, ref_events, gap_penalty=DEFAULT_GAP_PENALTY):
     """
     Precompute the full (N x M) event-alignment cost matrix using vectorised
-    NumPy broadcasting, instead of compute event cost one at a
-    time inside a Python loop. This also removes the redundant cost
+    NumPy broadcasting, instead of computing event cost one at a
+    time inside a loop. This also removes the redundant cost
     computation that used to happen a second time during backtracking.
 
     Args:
@@ -287,6 +288,7 @@ def build_cost_matrix(response_events, ref_events, gap_penalty=DEFAULT_GAP_PENAL
     res_is_chord = np.array([event["event_type"] == "chord" for event in response_events])
     ref_is_chord = np.array([event["event_type"] == "chord" for event in ref_events])
 
+    # For note events, extract the pitch; for chords, use 0 as a placeholder.
     res_pitch = np.array([
         event["notes"][0]["pitch"] if event["event_type"] == "note" else 0
         for event in response_events
@@ -304,24 +306,24 @@ def build_cost_matrix(response_events, ref_events, gap_penalty=DEFAULT_GAP_PENAL
     # then compute Hamming distance for every pair using broadcasting.
     res_pitch_vector = np.zeros((N, 12), dtype=int)
     for i in range(N):
-        if res_is_chord[i]:
-            for note in response_events[i]["notes"]:
-                res_pitch_vector[i, note["pitch"] % 12] = 1
+        if res_is_chord[i]: # only fill in the pitch vector for chords
+            for note in response_events[i]["notes"]: # iterate over all notes in the chord
+                res_pitch_vector[i, note["pitch"] % 12] = 1 # set the corresponding pitch class to 1
 
     ref_pitch_vector = np.zeros((M, 12), dtype=int)
     for j in range(M):
         if ref_is_chord[j]:
             for note in ref_events[j]["notes"]:
-                ref_pitch_vector[j, note["pitch"] % 12] = 1
+                ref_pitch_vector[j, note["pitch"] % 12] = 1 
 
     # (N, 1, 12) vs (1, M, 12) broadcasts to (N, M, 12); summing the last
     # axis gives the Hamming distance for every (response, ref) pair at once.
-    differs = res_pitch_vector.reshape(N, 1, 12) != ref_pitch_vector.reshape(1, M, 12)
-    chord_cost_matrix = differs.sum(axis=2)
+    differs = (res_pitch_vector.reshape(N, 1, 12) != ref_pitch_vector.reshape(1, M, 12)) # shape (N, M, 12)
+    chord_cost_matrix = differs.sum(axis=2) # sum over the last axis to get the Hamming distance for each pair
 
     # Type-mismatch mask: True where one side is a note and the other a chord.
-    type_mismatch = res_is_chord.reshape(N, 1) != ref_is_chord.reshape(1, M)
-    both_chords = res_is_chord.reshape(N, 1) & ref_is_chord.reshape(1, M)
+    type_mismatch = (res_is_chord.reshape(N, 1) != ref_is_chord.reshape(1, M))
+    both_chords = (res_is_chord.reshape(N, 1) & ref_is_chord.reshape(1, M))
 
     # Combine the three cases -- np.where(condition, true, false)
     cost_matrix = np.where(
@@ -335,9 +337,9 @@ def build_cost_matrix(response_events, ref_events, gap_penalty=DEFAULT_GAP_PENAL
 
 def event_alignment_ED(response_events, ref_events, gap_penalty=DEFAULT_GAP_PENALTY):
     """
-    Same algorithm as the production event_alignment_ED(), but the N x M
-    substitution costs are looked up from a precomputed cost matrix instead
-    of being recomputed on every DP cell and again during backtracking.
+    Aligns response and reference events using edit distance. 
+    Costs are precomputed once via build_cost_matrix() for efficiency, 
+    rather than recomputed inside the loop and during backtracking
 
     Args:
         response_events: list of event dicts from group_notes_into_events
@@ -345,7 +347,7 @@ def event_alignment_ED(response_events, ref_events, gap_penalty=DEFAULT_GAP_PENA
         gap_penalty: cost of leaving an event unaligned (insertion/deletion)
 
     Returns:
-        operations: list of operation dicts, same format as event_alignment_ED()
+        operations: list of operation dicts
         D: accumulated cost matrix, shape (N+1, M+1)
     """
     # if a raw note dict with "pitch"/"start"/"duration" but no "event_type" is
@@ -591,7 +593,7 @@ def event_level_feedback(operations, response_events, ref_events,
             "duration_abs_diff" -> float (seconds) or None
             "duration_relative_diff" -> float or None
     """
-    # Compute IOI for each reference note: ioi[m] = ref_notes[m]["start"] - ref_notes[m-1]["start"]
+    # Compute IOI for each reference note: ioi[m] = ref_events[m]["start"] - ref_events[m-1]["start"]
     # floor at 0.05s to avoid division by zero issues
     ref_ioi = [None] * len(ref_events)
     for m in range(1, len(ref_events)):
@@ -764,7 +766,8 @@ def compute_stats(event_level_results, ref_events, timing_scale=1.0,
     """
     note_events  = [n for n in event_level_results if n["event_type"] == "note"]
     chord_events = [ch for ch in event_level_results if ch["event_type"] == "chord"]
-    
+
+    # Count the total number of notes and chords in the reference events
     ref_note_count  = sum(1 for n in ref_events if n["event_type"] == "note")
     ref_chord_count = sum(1 for ch in ref_events if ch["event_type"] == "chord")
     
@@ -1062,6 +1065,257 @@ def generate_feedback_message(event_details, response_events, ref_events, stats,
     return "\n".join(all_messages)
 
 
+def polished_feedback_message(event_details, response_events, ref_events, stats,
+                               global_slow_threshold=GLOBAL_SLOW_THRESHOLD,
+                               global_fast_threshold=GLOBAL_FAST_THRESHOLD):
+    """
+    Generate concise, practice-oriented feedback that aims to:
+        1. summarise current performance level qualitatively
+        2. provide encouraging actionable advice for improvement
+        3. suggest a measurable goal for the next attempt with a main focus area
+    Individual note and chord errors remain available in event_details but
+    will not list each of them in the message.
+
+    Args:
+        event_details: list of dicts, output of event_level_feedback()
+        response_events: list of event dicts from group_notes_into_events
+        ref_events: list of event dicts from group_notes_into_events
+        stats: dict, output of compute_stats()
+        global_slow_threshold: timing_scale above this triggers "too slow" message
+        global_fast_threshold: timing_scale below this triggers "too fast" message
+
+    Returns:
+        feedback_message (str)
+    """
+    note_events  = [n for n in event_details if n["event_type"] == "note"]
+    chord_events = [ch for ch in event_details if ch["event_type"] == "chord"]
+
+    paired_notes  = [
+        n for n in note_events
+        if n["operation_type"] in ("match", "replacement")
+    ]
+    paired_chords = [
+        ch for ch in chord_events
+        if ch["operation_type"] in ("match", "replacement")
+    ]
+
+    total_reference_notes = stats["total_notes_in_reference"]
+    total_reference_chords = stats["total_chords_in_reference"]
+    total_reference_events = total_reference_notes + total_reference_chords
+
+    # --------------- summarise current performance level ---------------
+    # compute note-level accuracy metrics for pitch, timing, and duration
+    # -------------------------------------------------------------------
+    if total_reference_notes > 0:
+        note_pitch_correct = (total_reference_notes 
+                              - stats["total_notes_wrong_pitch"] - stats["total_notes_missing"])
+        note_pitch_accuracy = note_pitch_correct / total_reference_notes
+
+        note_timing_correct = (total_reference_notes 
+                          - stats["total_notes_wrong_timing"] - stats["total_notes_missing"])
+        note_timing_accuracy = note_timing_correct / total_reference_notes
+     
+        note_duration_correct = (total_reference_notes
+                            - stats["total_notes_wrong_duration"] - stats["total_notes_missing"])
+        note_duration_accuracy = note_duration_correct / total_reference_notes 
+    else:
+        note_pitch_accuracy = None
+        note_timing_accuracy = None
+        note_duration_accuracy = None
+ 
+    paired_chord_accuracies = [event["chord_accuracy"] 
+                               for event in paired_chords 
+                               if event["chord_accuracy"] is not None]
+    # Missing chords were never matched, treat as 0 accuracy for the purpose of computing median chord accuracy
+    paired_chord_accuracies = paired_chord_accuracies + [0.0] * stats["total_chords_missing"]
+    if paired_chord_accuracies:
+        median_chord_accuracy = float(np.median(paired_chord_accuracies))
+    else:
+        median_chord_accuracy = None
+
+    # summary qualitative feedback messages based on the accuracy metrics
+    # -------------------------------------------------------------------
+    current_performance_messages = []
+
+    if note_pitch_accuracy is not None:
+        if note_pitch_accuracy >= 0.90:
+            current_performance_messages.append(
+                "Great! Most notes were played correctly, " \
+                "you've got a good grasp of the melody.")
+        elif note_pitch_accuracy >= 0.70:
+            current_performance_messages.append(
+                "Many notes were correct, although a few passages " \
+                "still need more careful practice. Try slowing down in " \
+                "these sections and checking each note before gradually " \
+                "returning to the intended tempo."
+            )
+        else:
+            current_performance_messages.append(
+                "Note accuracy needs more practice. " 
+                "Practice each short passage at a slower tempo, " 
+                "check each note carefully, mind the fingering during practice. " \
+                "Then move on to the next passage when you feel confident with the current one."
+            )
+
+    if note_timing_accuracy is not None:
+        if note_timing_accuracy >= 0.90:
+            current_performance_messages.append(
+                "Great timing consistency between notes, you've got a " \
+                "good sense of onset time and rhythm!"
+            )
+        elif note_timing_accuracy >= 0.70:
+            current_performance_messages.append(
+                "The spacing between notes was mostly consistent, although " \
+                "a few passages were less steady. Practicing these sections " \
+                "with a slower, regular beat may help you play each note at the right time " \
+                "and hence make the rhythm more steady."
+            )
+        else:
+            current_performance_messages.append(
+                "Timing consistency needs more practice. You can slow down in your " \
+                "next practice session and listen carefully " \
+                "for notes that arrive too early or too late. " \
+                "A metronome can help you play each note at the right time " \
+                "and hence make the rhythm more steady." 
+            )
+        # do not comment on duration for now, as it may be due to transcription errors
+
+    if total_reference_chords > 0:
+        if median_chord_accuracy is None or median_chord_accuracy < 0.70:
+            current_performance_messages.append(
+                            "Simultaneous notes are often hard to play correctly at the beginning. " \
+                            "Pay attention to the fingering and hand position when playing these chords. " \
+                            "You may find it helpful to practice each chord separately first and make sure " \
+                            "all required notes sound together. Then you can reconnect the chords to " \
+                            "their surrounding sections and practice at a slower tempo carefully. "
+                        )
+        elif median_chord_accuracy >= 0.90:
+            current_performance_messages.append(
+                "Nice! The chords were played accurately overall."
+            )
+        elif median_chord_accuracy >= 0.70:
+            current_performance_messages.append(
+                "Most chord notes were played correctly, although some chords contain " \
+                "missing or additional notes. It's a good idea to practice each difficult chord " \
+                "separately and make sure that all required notes sound together."
+            )
+
+    # overall tempo feedback based on timing and duration scale factors
+    # -------------------------------------------------------------------
+    timing_scale = stats["timing_scale"]
+    duration_scale = stats["duration_scale"]
+    if timing_scale > global_slow_threshold:
+        tempo_message = (
+            "Your overall tempo was slower than the reference. This is not necessarily " \
+            "a problem, and it is a good idea to play slowly while learning. " \
+            "Whatever tempo you choose, aim to keep the rhythm steady throughout the performance."
+        )
+    elif timing_scale < global_fast_threshold:
+        tempo_message = (
+            "Your overall tempo was faster than the reference. This is not necessarily " \
+            "a problem. Althogh you are confident in this piece, remember to play each " \
+            "note clearly and make surethe rhythm remains steady."
+        )
+    else:
+        tempo_message = (
+            "Well done! Your overall tempo was close to the reference. Keep up the good work! " \
+            "Don't forget to keep the rhythm steady throughout the performance."
+        )
+
+    # missing and extra
+    # ------------------------------------------------------------------
+    total_missing_events = (stats["total_notes_missing"] + stats["total_chords_missing"])
+    total_extra_events = (stats["total_notes_extra"] + stats["total_chords_extra"])
+    total_completeness_errors = (total_missing_events + total_extra_events)
+    if total_reference_events > 0:
+        completeness_error_rate = total_completeness_errors / total_reference_events
+    else:
+        completeness_error_rate = 0.0
+
+    if total_completeness_errors == 0:
+        completeness_messages = (
+            "You completed the performance without missing or adding any " \
+            "notes or chords. Well done!"
+        )
+    elif completeness_error_rate <= 0.10:
+        completeness_messages = (
+            "The performance was mostly complete, with only a few missing " \
+            "or additional notes or chords. Review the affected passages " \
+            "slowly and check your fingering before playing them again."
+        )
+    else:
+        completeness_messages = (
+            "No worries! It is common to miss or play extra notes when learning a new piece, " \
+            "especially difficult passages. You can slow down in your next practice and pay " \
+            "more attention to your fingering and hand position. ")
+
+    # -------------- suggest a measurable goal and a focus area --------------
+    scores = {}
+    if note_pitch_accuracy is not None:
+        scores["pitch"] = note_pitch_accuracy
+    if note_timing_accuracy is not None:
+        scores["timing"] = note_timing_accuracy
+    # if note_duration_accuracy is not None:
+        # scores["duration"] = note_duration_accuracy
+    if median_chord_accuracy is not None:
+        scores["chords"] = median_chord_accuracy
+
+    if scores:
+        main_focus = min(scores, key=scores.get)
+        main_focus_score = scores[main_focus]
+    else:
+        main_focus = None
+        main_focus_score = None
+
+    if main_focus_score is not None and main_focus_score >= 0.90:
+        focus_message = (
+            "Excellent work! You already have a good understanding of the melody and the rhythm. " \
+            "For your next attempt, choose one short challenging section and " \
+            "aim to play it confidently three times in a row.")
+    elif main_focus == "pitch":
+        overall_message = "You've got a good understanding of the rhythm. " if main_focus_score >= 0.70 else "Good progress! "
+        focus_message = (
+            overall_message + "Let's focus on note accuracy next. Choose one short challenging " \
+            "passage and practice it slowly. Aim to play this phrase correctly " \
+            "three times in a row before increasing the tempo and moving on."
+        )
+    elif main_focus == "timing":
+        overall_message = "You've got a good understanding of the melody. " if main_focus_score >= 0.70 else "Good progress! "
+        focus_message = (
+            overall_message + "Let's focus on timing next. Practice with a slower, steady beat, " \
+            "preferably using a metronome. Aim to keep the spacing between the " \
+            "notes even three times in a row, then gradually increase the tempo."
+        )
+    elif main_focus == "chords":
+        overall_message = "You've got a good understanding of the melody and the rhythm. " if main_focus_score >= 0.70 else "Good progress! "
+        focus_message = (
+            overall_message + "Let's focus on chord accuracy next. Choose one difficult chord " \
+            "and adjust your hand position. Aim to make all required notes " \
+            "sound together correctly three times in a row."
+        )
+    else:
+        # scores was empty: no reference notes/chords to evaluate at all.
+        focus_message = "No reference notes or chords were found to evaluate."
+
+    all_messages = [
+        "Practice Summary",
+        "\n".join(current_performance_messages),
+        "",
+        "Tempo",
+        tempo_message,
+        "",
+        "Performance Completeness", 
+        completeness_messages,
+        "",
+        "Main Practice Focus",
+        focus_message,
+        "",
+        "Keep up the good work and enjoy your music journey!",
+    ]
+        
+    return "\n".join(all_messages)
+
+
 # FeedbackResult class
 # ------------------------------------------------------------------------------
 class FeedbackResult:
@@ -1173,7 +1427,7 @@ def compare_performance_ED(responseMIDI, refMIDI,
     )
 
     # Step 5: Generate human-readable feedback
-    feedback_message = generate_feedback_message(
+    feedback_message = polished_feedback_message(
         event_details, response_events, ref_events, stats,
         global_slow_threshold=global_slow_threshold,
         global_fast_threshold=global_fast_threshold,

@@ -19,6 +19,14 @@ from .compare_MIDI import (
     GLOBAL_FAST_THRESHOLD,
     DEFAULT_CHORD_ONSET_WINDOW
 )
+from .audio_processing import (
+    is_audio_input,
+    load_basic_pitch_model,
+    transcription_pipeline,
+)
+# Load the Basic Pitch model once, when this file is first imported.
+BASIC_PITCH_MODEL = load_basic_pitch_model()
+
 
 def parse_json_input(data: Any) -> Any:
     """
@@ -27,6 +35,26 @@ def parse_json_input(data: Any) -> Any:
     if isinstance(data, str):
         return json.loads(data)
     return data
+
+
+def prepare_input(raw_input: Any) -> Any:
+    """
+    Turn one raw input (either response or answer) into the
+    format that compare_performance_ED expects.
+
+    There are two possible cases:
+      - raw_input is an audio file path
+        -> run it through the AMT (audio-to-MIDI) transcription pipeline
+      - raw_input is already MIDI (a dict, or a JSON string of a dict)
+        -> just parse it as JSON, no transcription needed
+    """
+    if is_audio_input(raw_input):
+        compare_midi_input, predicted_notes, runtime_seconds = transcription_pipeline(
+            raw_input, BASIC_PITCH_MODEL
+        )
+        return compare_midi_input
+
+    return parse_json_input(raw_input)
 
 
 def evaluation_function(
@@ -61,8 +89,8 @@ def evaluation_function(
 
     # The Lambda Feedback app sends response/answer as JSON strings,
     # convert them into Python object first
-    response = parse_json_input(response)
-    answer = parse_json_input(answer)
+    response = prepare_input(response)
+    answer = prepare_input(answer)
 
     result = compare_performance_ED(
         response,

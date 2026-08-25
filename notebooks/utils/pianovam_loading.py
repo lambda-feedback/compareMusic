@@ -1,8 +1,8 @@
 """
 pianovam_loading.py
 ===================
-downloading the dataset, loading metadata and ground truth, 
-computing mir_eval-based transcription metrics, 
+downloading the dataset, loading metadata and ground truth,
+converting notes into mir_eval-compatible arrays
 """
 
 
@@ -57,6 +57,7 @@ def load_pianovam_metadata(metadata_path):
 
     metadata_df = pd.DataFrame.from_dict(metadata, orient="index").reset_index(names="sample_id")
     metadata_df["sample_id"] = metadata_df["sample_id"].astype(str)
+    # Convert duration to seconds
     metadata_df["duration_seconds"] = pd.to_timedelta(metadata_df["duration"]).dt.total_seconds()
 
     return metadata_df

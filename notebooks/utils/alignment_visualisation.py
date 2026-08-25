@@ -9,15 +9,15 @@ import matplotlib.pyplot as plt
 def format_event_pitch(event):
     """
     Convert an event into a short pitch label for the alignment diagram.
-    A note event is shown as a single MIDI pitch, e.g.: 60
+    A note event is shown as a single MIDI pitch, e.g. 60
     A chord event is shown as a set of MIDI pitches, e.g.: {60, 64, 67}
     """
-    pitches = [note["pitch"] for note in event["notes"]]
+    pitches = [note["pitch"] for note in event["notes"]] # list of MIDI pitches in the event
 
     if len(pitches) == 1:
-        return str(pitches[0])
+        return str(pitches[0]) # single note
 
-    return "{" + ", ".join(str(pitch) for pitch in pitches) + "}"
+    return "{" + ", ".join(str(pitch) for pitch in pitches) + "}" # chord
 
 def plot_edit_distance_alignment(operations, D, response_events, ref_events):
     """
@@ -53,12 +53,12 @@ def plot_edit_distance_alignment(operations, D, response_events, ref_events):
 
     for operation in reversed(operations):
         operation_type = operation["type"]
-        if operation_type in ("match", "replacement"):
+        if operation_type in ("match", "replacement"): # both indices decrease
             n -= 1
             m -= 1
-        elif operation_type == "extra":
+        elif operation_type == "extra": # only the response index decreases
             n -= 1
-        elif operation_type == "missing":
+        elif operation_type == "missing": # only the reference index decreases
             m -= 1
         path_rows.append(n)
         path_cols.append(m)
@@ -136,7 +136,7 @@ def plot_edit_distance_alignment(operations, D, response_events, ref_events):
         pitch_label = format_event_pitch(event)
         ax.add_patch(
                     plt.Rectangle(
-                        (xpos - box_width / 2, reference_y),
+                        (xpos - box_width / 2, response_y),
                         box_width, box_height, fill=False,
                         edgecolor="black", linewidth=1.5)
                 )
@@ -188,5 +188,3 @@ def plot_edit_distance_alignment(operations, D, response_events, ref_events):
     ax.set_title("Alignment Diagram")
     plt.tight_layout()
     plt.show()
-
-

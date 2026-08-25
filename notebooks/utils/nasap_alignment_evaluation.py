@@ -2,7 +2,7 @@
 nasap_alignment_evaluation.py
 =============================
 Helper functions for evaluating the Phase 1 event-level MIDI alignment
-pipeline on the CPJKU nASAP dataset.
+pipeline on the (n)ASAP dataset.
 """
 
 import csv
@@ -31,7 +31,7 @@ ONSET_TOLERANCE = 0.05
 
 def load_ground_truth(tsv_path):
     """
-    Read a note_alignment.tsv file from the CPJKU nASAP dataset.
+    Read a note_alignment.tsv file from the (n)ASAP dataset.
     Returns one dictionary per TSV row. XML and MIDI identifiers are retained
     so that individual alignment errors can be traced later.
         Keys:
@@ -184,7 +184,7 @@ def build_sample(xml_path, response_path, composer, title, metadata_row):
 def load_samples(asap_path, composer):
     """
     Read metadata.csv and return MusicXML-score / MIDI-performance samples
-    for one composer.
+    for specified composer.
     """
     metadata_path = os.path.join(asap_path, "metadata.csv")
     samples = []
@@ -193,13 +193,16 @@ def load_samples(asap_path, composer):
         reader = csv.DictReader(csv_file)
 
         for row in reader:
+            # Only load samples for the specified composer.
             if row.get("composer", "").strip() != composer:
                 continue
 
             xml_path = os.path.join(asap_path, row.get("xml_score", "").strip())
             response_path = os.path.join(asap_path, row.get("midi_performance", "").strip())
             tsv_path = os.path.join(asap_path, row.get("note_alignments", "").strip())
-            
+
+            # Only load samples that have all three required files: 
+            # MusicXML score, performance MIDI, and ground-truth TSV.
             if os.path.isfile(xml_path) and os.path.isfile(response_path) and os.path.isfile(tsv_path):
                 sample = build_sample(
                 xml_path,
@@ -285,12 +288,12 @@ def convert_pipeline_output(event_details, response_events, ref_events):
         response_event = None
         reference_event = None
 
+        # Find the corresponding response and reference events, if they exist.
         if event.get("response_index") is not None:
             response_index = event["response_index"] - 1
             if (response_index < 0) or (response_index >= len(response_events)):
                 raise IndexError("response_index is outside response_events")
             response_event = response_events[response_index]
-
         if event.get("reference_index") is not None:
             reference_index = event["reference_index"] - 1
             if (reference_index < 0) or (reference_index >= len(ref_events)):
@@ -408,6 +411,8 @@ def compute_metrics(ground_truth, predictions, onset_offset=0.0):
     gt_insertions = {}
     predicted_insertions = {}
 
+    # Group insertions by pitch so onset-matching only happens within the same pitch
+    # (count_onset_matches only compares onset times, not pitch).
     for row in ground_truth:
         if (
             row["label"] == "insertion"
@@ -418,7 +423,6 @@ def compute_metrics(ground_truth, predictions, onset_offset=0.0):
             if pitch not in gt_insertions:
                 gt_insertions[pitch] = []
             gt_insertions[pitch].append(float(row["onset"]))
-
     for row in predictions:
         if (
             row["label"] == "insertion"
@@ -431,7 +435,8 @@ def compute_metrics(ground_truth, predictions, onset_offset=0.0):
             predicted_insertions[pitch].append(
                 float(row["onset"]) + onset_offset
             )
-
+    # Match onsets separately within each pitch, so an insertion can only be
+    # matched against a ground-truth insertion of the same pitch.
     for pitch in set(gt_insertions) | set(predicted_insertions):
         gt_onsets = gt_insertions.get(pitch, [])
         predicted_onsets = predicted_insertions.get(pitch, [])
@@ -482,6 +487,7 @@ def compute_metrics(ground_truth, predictions, onset_offset=0.0):
 
 
 def get_note_centre(note):
+    """Find the centre of a note for plotting a connector line."""
     return (
         note["start"] + note["duration"] / 2,
         note["pitch"],
@@ -489,6 +495,7 @@ def get_note_centre(note):
 
 
 def event_overlaps_range(event, start, end):
+    """Check if any note in an event overlaps a given time range."""
     for note in event["notes"]:
         note_start = note["start"]
         note_end = note["start"] + note["duration"]
@@ -525,7 +532,7 @@ def pair_event_notes(ref_event, response_event):
     # First pair notes with identical pitches.
     for response_index, response_note in enumerate(response_notes):
         matching_ref_index = None
-
+        # Search for a matching reference note with the same pitch that hasn't been used yet.
         for ref_index, ref_note in enumerate(ref_notes):
             ref_is_available = ref_index not in used_ref_indices
             pitches_match = ref_note["pitch"] == response_note["pitch"]
@@ -575,31 +582,29 @@ def pair_event_notes(ref_event, response_event):
 
 
 def plot_alignment(ref_events, response_events, event_details, ref_start, ref_end):
+    """Plot a piano-roll visualisation of the event-level alignment."""
     reference_positions = []
-
+    # Find the first and last positions in event_details that contain reference events
     for position, detail in enumerate(event_details):
         reference_index = detail.get("reference_index")
-
         if reference_index is not None:
             ref_event = ref_events[reference_index - 1]
-
             if event_overlaps_range(
                 ref_event,
                 ref_start,
                 ref_end,
             ):
                 reference_positions.append(position)
-
     if not reference_positions:
         raise ValueError(
             "No reference events were found in this range."
         )
-
     first_position = min(reference_positions)
     last_position = max(reference_positions)
 
+    # Select all event_details between the first and last positions, 
+    # including any extra events that may not have a reference event.
     selected_details = []
-
     for position in range(first_position, last_position + 1):
         detail = event_details[position]
         operation = detail["operation_type"]
@@ -616,9 +621,10 @@ def plot_alignment(ref_events, response_events, event_details, ref_start, ref_en
         if include_detail:
             selected_details.append(detail)
 
+    # Find the earliest start and latest end times of the response events that 
+    # correspond to the selected details.
     response_starts = []
     response_ends = []
-
     for detail in selected_details:
         response_index = detail.get("response_index")
 
@@ -636,6 +642,8 @@ def plot_alignment(ref_events, response_events, event_details, ref_start, ref_en
         response_start = ref_start
         response_end = ref_end
 
+    # Filter the response and reference events to only include 
+    # those that overlap the specified time ranges.
     visible_response_events = []
     for event in response_events:
         if event_overlaps_range(event, response_start, response_end):
@@ -771,7 +779,7 @@ def plot_alignment(ref_events, response_events, event_details, ref_start, ref_en
 
     for detail in selected_details:
         operation = detail["operation_type"]
-
+        # Draw missing note markers.
         if operation == "missing":
             reference_index = detail.get("reference_index")
 
@@ -793,7 +801,7 @@ def plot_alignment(ref_events, response_events, event_details, ref_start, ref_en
                         )
 
                         missing_count += 1
-
+        # Draw extra note markers.
         elif operation == "extra":
             response_index = detail.get("response_index")
 
@@ -848,8 +856,12 @@ def plot_alignment(ref_events, response_events, event_details, ref_start, ref_en
 
 
 def plot_case(ax_response, ax_ref, fig, ref_events, response_events, event_details, ref_start, ref_end, title):
+    """
+    Plot a piano-roll visualisation of the event-level alignment for a single case.
+    This function is similar to plot_alignment but allows for more control over the axes and figure.
+    """
     selected_details = []
-
+    # Select all event_details that have a reference event overlapping the specified range
     for detail in event_details:
         reference_index = detail.get("reference_index")
 
@@ -860,7 +872,7 @@ def plot_case(ax_response, ax_ref, fig, ref_events, response_events, event_detai
                 selected_details.append(detail)
 
     selected_positions = []
-
+    # Find the first and last positions in event_details that contain reference events
     for position, detail in enumerate(event_details):
         if detail in selected_details:
             selected_positions.append(position)
@@ -877,7 +889,8 @@ def plot_case(ax_response, ax_ref, fig, ref_events, response_events, event_detai
 
     response_starts = []
     response_ends = []
-
+    # Find the earliest start and latest end times of the response events that 
+    # correspond to the selected details.
     for detail in selected_details:
         response_index = detail.get("response_index")
 
@@ -898,7 +911,8 @@ def plot_case(ax_response, ax_ref, fig, ref_events, response_events, event_detai
     visible_ref_events = []
     visible_response_events = []
     visible_pitches = []
-
+    # Filter the response and reference events to only include those 
+    # that overlap the specified time ranges.
     for event in ref_events:
         if event_overlaps_range(event, ref_start, ref_end):
             visible_ref_events.append(event)
@@ -932,12 +946,14 @@ def plot_case(ax_response, ax_ref, fig, ref_events, response_events, event_detai
     ax_response.set_xlim(response_start, response_end)
     ax_ref.set_xlim(ref_start, ref_end)
 
+    # Set the y-axis limits based on the visible pitches, with a margin of 1 pitch above and below.
     if visible_pitches:
         pitch_min = min(visible_pitches) - 1
         pitch_max = max(visible_pitches) + 1
         ax_response.set_ylim(pitch_min, pitch_max)
         ax_ref.set_ylim(pitch_min, pitch_max)
 
+    # Draw connectors and markers for each selected detail.
     for detail in selected_details:
         operation = detail["operation_type"]
         reference_index = detail.get("reference_index")
@@ -997,10 +1013,7 @@ def plot_case(ax_response, ax_ref, fig, ref_events, response_events, event_detai
     ax_ref.set_xlabel("Time (s)")
 
 
-def evaluate_alignment_dataset(
-    asap_path,
-    composer="Bach",
-):
+def evaluate_alignment_dataset(asap_path, composer="Bach"):
     """
     Load one composer's nASAP samples, run the Phase 1 pipeline and evaluate
     the predicted note-level alignment labels against the nASAP ground truth.
@@ -1031,14 +1044,16 @@ def evaluate_alignment_dataset(
             print("TSV not found:", tsv_path)
             continue
 
+        # Load the nASAP ground-truth alignment for this sample.
         ground_truth = load_ground_truth(tsv_path)
-
+        # Convert the pipeline output into note-level labels
         predictions = convert_pipeline_output(
             result["event_details"],
             result["response_events_normalized"],
             result["ref_events_normalized"],
         )
-
+        # compute_metrics uses the normalised response event times, 
+        # restore the original MIDI onset times before comparing with nASAP.
         metrics = compute_metrics(
             ground_truth,
             predictions,
@@ -1146,48 +1161,21 @@ def prepare_alignment_case_study(samples, all_results, sample_index, asap_path=N
     metrics = compute_metrics(ground_truth, predictions)
 
     ground_truth_counts = Counter(note["label"] for note in ground_truth)
-
     prediction_counts = Counter(note["label"] for note in predictions)
 
-    ground_truth_response_note_count = (
-        ground_truth_counts["paired"]
-        + ground_truth_counts["insertion"]
-    )
+    ground_truth_response_note_count = ground_truth_counts["paired"] + ground_truth_counts["insertion"]
+    ground_truth_reference_note_count = ground_truth_counts["paired"] + ground_truth_counts["deletion"]
 
-    ground_truth_reference_note_count = (
-        ground_truth_counts["paired"]
-        + ground_truth_counts["deletion"]
-    )
+    prediction_response_note_count = prediction_counts["paired"] + prediction_counts["insertion"]
+    prediction_reference_note_count = prediction_counts["paired"] + prediction_counts["deletion"]
 
-    prediction_response_note_count = (
-        prediction_counts["paired"]
-        + prediction_counts["insertion"]
-    )
+    actual_response_note_count = sum(len(event["notes"]) for event in response_events)
+    actual_reference_note_count = sum(len(event["notes"]) for event in ref_events)
 
-    prediction_reference_note_count = (
-        prediction_counts["paired"]
-        + prediction_counts["deletion"]
-    )
-
-    actual_response_note_count = sum(
-        len(event["notes"])
-        for event in response_events
-    )
-
-    actual_reference_note_count = sum(
-        len(event["notes"])
-        for event in ref_events
-    )
-
-    response_notes_conserved = (
-        prediction_response_note_count
-        == actual_response_note_count
-    )
-
-    reference_notes_conserved = (
-        prediction_reference_note_count
-        == actual_reference_note_count
-    )
+    # Check whether every response and reference note is represented exactly 
+    # once in the converted pipeline output.
+    response_notes_conserved = (prediction_response_note_count == actual_response_note_count)
+    reference_notes_conserved = (prediction_reference_note_count == actual_reference_note_count)
 
     case_study.update({
         "paths": paths,
@@ -1207,6 +1195,7 @@ def prepare_alignment_case_study(samples, all_results, sample_index, asap_path=N
     })
 
     return case_study
+
 
 def print_alignment_case_summary(case_study):
     """

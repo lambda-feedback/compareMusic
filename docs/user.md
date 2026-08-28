@@ -4,16 +4,15 @@
 
 ## What the student sees
 
-Feedback is returned in two parts:
-
-**Overview** — a summary of overall tempo, and counts of pitch errors, missing notes, and extra notes.
-
-**Detail** — a note-level feedback of every specific issue, including which notes were missed, which had the wrong pitch, and which were played noticeably early, late, or with an incorrect duration. The function separates **global tempo** (playing consistently faster or slower throughout) from **local timing errors** (a single note noticeably early or late relative to surrounding notes), which means student who plays the whole piece at 80% speed will receive one global tempo comment instead of repetitive comments on every note.
+The feedback message was structured into four parts. 
+- **Practice Summary**: current performance level qualitatively based on accuracy of pitch, timing and chords, followed by some practice suggestions for improvement. 
+- **Tempo**: the overall tempo feedback based on timing and duration scale factors. 
+- **Performance Completeness**: an overview of extra or missing notes or chords based on error rate. 
+- **Main Practice Focus**: suggests a measurable goal for the next attempt with a main focus area and it is selected based on accuracy of each dimension. 
 
 ## Setting up a question
 
-Set the **Answer** field to a JSON object representing the reference MIDI performance, e.g.:
-
+The **Answer** and **Response** can be audio file path of music recordings, or MIDI (a dict, or a JSON string of a dict) format such as:
 ```json
 {
   "notes": [
@@ -23,10 +22,8 @@ Set the **Answer** field to a JSON object representing the reference MIDI perfor
   ]
 }
 ```
-
 where `pitch` is an integer representing MIDI note number (e.g. middle C = 60), `start` is float representing note onset time in seconds, and `duration` is float in seconds.
 
-The student's **Response** must be in the same format.
 
 ## Adjusting strictness
 
@@ -39,4 +36,4 @@ All parameters are adjustable. If not set, the defaults below are used.
 | `gap_penalty` | `6` | Controls note alignment. Increase this if the function incorrectly reports a wrong note as "missing + extra". |
 | `global_slow_threshold` | `1.15` | Overall tempo more than 15% slower than reference triggers a "too slow" comment. |
 | `global_fast_threshold` | `0.85` | Overall tempo more than 15% faster than reference triggers a "too fast" comment. |
-
+| `chord_onset_window` | `0.05` | How close together (in seconds) notes need to start to be treated as one chord rather than separate notes. Increase this if fast chords are being incorrectly split into separate notes; decrease it if separate fast notes are being incorrectly grouped into a chord. |

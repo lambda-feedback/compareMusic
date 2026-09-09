@@ -19,6 +19,7 @@ Sections
 8. Tests for evaluation_function (Lambda Feedback integration)
 9. Tests for parameter overrides
 10. Bulk tests using longer MIDI sequences
+11. Tests for submissions that contain no notes
 """
 
 
@@ -706,3 +707,94 @@ def test_realistic_scenario(case):
         assert len(matching_notes) == 1
         flagged_note = matching_notes[0]
         assert flagged_note["timing_correct"] is False
+
+# 11. Tests for submissions that contain no notes
+# ------------------------------------------------------------------------------
+# An empty note list is reachable in production: a student submits nothing,
+# uploads a silent or failed recording, or plays so quietly that transcription
+# returns no notes at all. These cases used to raise IndexError, which reaches
+# the student as a 500 rather than a feedback message.
+#
+# Short-but-not-empty submissions already worked, and are covered here so they
+# stay working.
+
+EMPTY_MIDI = {"notes": []}
+
+
+def short_melody(note_count):
+    """The first note_count notes of a simple four-note melody."""
+    pitches = [60, 62, 64, 65][:note_count]
+    starts = [0.0, 0.5, 1.0, 1.5][:note_count]
+    return make_midi(pitches, starts, [0.4] * note_count)
+
+
+FOUR_NOTE_REFERENCE = short_melody(4)
+
+
+class TestEmptyResponse(unittest.TestCase):
+
+    def test_does_not_raise(self):
+        compare_performance_ED(EMPTY_MIDI, FOUR_NOTE_REFERENCE)
+
+    def test_is_not_correct(self):
+        result = compare_performance_ED(EMPTY_MIDI, FOUR_NOTE_REFERENCE)
+        assert result.is_correct is False
+
+    def test_every_reference_note_counted_as_missing(self):
+        result = compare_performance_ED(EMPTY_MIDI, FOUR_NOTE_REFERENCE)
+        assert result.stats["total_notes_missing"] == 4
+        assert result.stats["total_notes_extra"] == 0
+
+    def test_feedback_says_no_notes_were_detected(self):
+        # "You missed four notes" is technically true but unhelpful when the
+        # student submitted nothing at all. The message should say so plainly.
+        result = compare_performance_ED(EMPTY_MIDI, FOUR_NOTE_REFERENCE)
+        assert "no notes" in result.feedback_message.lower()
+
+    def test_through_the_platform_entry_point(self):
+        result = evaluation_function(EMPTY_MIDI, FOUR_NOTE_REFERENCE, {})
+        assert result["is_correct"] is False
+        assert "no notes" in result["feedback"].lower()
+
+
+class TestEmptyReference(unittest.TestCase):
+    """An empty reference is a misconfigured question, not a student error."""
+
+    def test_does_not_raise(self):
+        compare_performance_ED(FOUR_NOTE_REFERENCE, EMPTY_MIDI)
+
+    def test_is_not_correct(self):
+        result = compare_performance_ED(FOUR_NOTE_REFERENCE, EMPTY_MIDI)
+        assert result.is_correct is False
+
+    def test_feedback_points_at_the_question_not_the_student(self):
+        result = compare_performance_ED(FOUR_NOTE_REFERENCE, EMPTY_MIDI)
+        assert "reference" in result.feedback_message.lower()
+
+
+class TestBothEmpty(unittest.TestCase):
+
+    def test_does_not_raise(self):
+        compare_performance_ED(EMPTY_MIDI, EMPTY_MIDI)
+
+    def test_is_not_correct(self):
+        # A submission with nothing to compare cannot be correct, even though
+        # an empty response trivially "matches" an empty reference.
+        result = compare_performance_ED(EMPTY_MIDI, EMPTY_MIDI)
+        assert result.is_correct is False
+
+
+class TestShortSubmissions(unittest.TestCase):
+    """One and two note submissions already worked; keep them working."""
+
+    def test_one_note_against_four_note_reference(self):
+        result = compare_performance_ED(short_melody(1), FOUR_NOTE_REFERENCE)
+        assert result.stats["total_notes_missing"] == 3
+
+    def test_two_notes_against_four_note_reference(self):
+        result = compare_performance_ED(short_melody(2), FOUR_NOTE_REFERENCE)
+        assert result.stats["total_notes_missing"] == 2
+
+    def test_single_note_matching_single_note_reference_is_correct(self):
+        one_note = short_melody(1)
+        assert compare_performance_ED(one_note, one_note).is_correct is True

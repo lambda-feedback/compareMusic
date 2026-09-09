@@ -587,6 +587,26 @@ class TestEvaluationFunction(unittest.TestCase):
         result = evaluation_function(res, ref, {})
         assert result["is_correct"] == False
 
+    # Shimmy serialises whatever this function returns straight to JSON, so
+    # the return value must be a plain dict carrying these two keys. The
+    # template annotated it as returning lf_toolkit's Result class, which it
+    # has never done, and which renders feedback by joining items with
+    # "<br>" -- that would mangle the newline-separated message produced here.
+    def test_returns_a_plain_dict(self):
+        midi = make_midi([60, 62], [0.0, 0.5], [0.4, 0.4])
+        assert type(evaluation_function(midi, midi, {})) is dict
+
+    def test_carries_is_correct_and_feedback(self):
+        midi = make_midi([60, 62], [0.0, 0.5], [0.4, 0.4])
+        result = evaluation_function(midi, midi, {})
+        assert isinstance(result["is_correct"], bool)
+        assert isinstance(result["feedback"], str)
+
+    def test_result_is_json_encodable(self):
+        import json as _json
+        midi = make_midi([60, 62], [0.0, 0.5], [0.4, 0.4])
+        _json.dumps(evaluation_function(midi, midi, {}))
+
 
 # 9. Tests for parameter overrides
 # ------------------------------------------------------------------------------
@@ -647,10 +667,15 @@ this_dir  = os.path.dirname(this_file)           # evaluation_function/
 root_dir  = os.path.dirname(this_dir)            # compareMusic/
 path = os.path.join(root_dir, "data", "longMIDIsequence.json")
 
-with open(path, "r") as json_file:
-    REALISTIC_TEST_DATA = json.load(json_file)
- 
-REALISTIC_TEST_CASES = REALISTIC_TEST_DATA["test_cases"]
+# The fixture lives outside the package, so it is not guaranteed to be present
+# everywhere the tests run. Degrade to skipping these cases rather than failing
+# the whole module at import, which would take every other test down with it.
+if os.path.exists(path):
+    with open(path, "r") as json_file:
+        REALISTIC_TEST_DATA = json.load(json_file)
+    REALISTIC_TEST_CASES = REALISTIC_TEST_DATA["test_cases"]
+else:
+    REALISTIC_TEST_CASES = []
 REALISTIC_TEST_IDS = [case["name"] for case in REALISTIC_TEST_CASES]
 
 @pytest.mark.parametrize("case", REALISTIC_TEST_CASES, ids=REALISTIC_TEST_IDS)

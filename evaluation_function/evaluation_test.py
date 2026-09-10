@@ -19,6 +19,7 @@ Sections
 8. Tests for evaluation_function (Lambda Feedback integration)
 9. Tests for parameter overrides
 10. Bulk tests using longer MIDI sequences
+11. Tests for the optional detail section (show_detail)
 """
 
 
@@ -43,7 +44,9 @@ from .compare_MIDI import (
     GLOBAL_SLOW_THRESHOLD,
     GLOBAL_FAST_THRESHOLD,
     DEFAULT_CHORD_ONSET_WINDOW,
+    SHOW_DETAIL,
 )
+from .feedback_messages import detail_caveat_message, report_section_titles
 from .evaluation import evaluation_function
 
 
@@ -706,3 +709,72 @@ def test_realistic_scenario(case):
         assert len(matching_notes) == 1
         flagged_note = matching_notes[0]
         assert flagged_note["timing_correct"] is False
+
+
+# 11. Tests for the optional detail section (show_detail)
+# ------------------------------------------------------------------------------
+class TestShowDetail(unittest.TestCase):
+
+    # A wrong pitch in the middle of an otherwise correct performance, so
+    # there is always exactly one thing for the detail section to report.
+    REF = make_midi([60, 62, 64, 65], [0, 0.5, 1.0, 1.5], [0.4] * 4)
+    RES = make_midi([60, 62, 63, 65], [0, 0.5, 1.0, 1.5], [0.4] * 4)
+
+    def test_detail_is_off_by_default(self):
+        assert SHOW_DETAIL is False
+        feedback = compare_performance_ED(self.RES, self.REF).feedback_message
+        assert report_section_titles["summary"] in feedback
+        assert "Note Detail:" not in feedback
+        assert detail_caveat_message not in feedback
+
+    def test_show_detail_appends_detail_below_the_summary(self):
+        feedback = compare_performance_ED(
+            self.RES, self.REF, show_detail=True
+        ).feedback_message
+        # The summary is not replaced by the detail, it is still on top.
+        assert report_section_titles["summary"] in feedback
+        assert "Note Detail:" in feedback
+        assert feedback.index(report_section_titles["summary"]) < feedback.index("Note Detail:")
+
+    def test_detail_section_is_introduced_by_the_caveat(self):
+        feedback = compare_performance_ED(
+            self.RES, self.REF, show_detail=True
+        ).feedback_message
+        assert detail_caveat_message in feedback
+        assert feedback.index(detail_caveat_message) < feedback.index("Note Detail:")
+
+    def test_show_detail_passed_through_params(self):
+        assert "Note Detail:" not in evaluation_function(self.RES, self.REF, {})["feedback"]
+        with_detail = evaluation_function(self.RES, self.REF, {"show_detail": True})
+        assert "Note Detail:" in with_detail["feedback"]
+
+    def test_note_held_too_short_is_reported_as_shorter(self):
+        # Note 3 is held for a quarter of its reference duration while every
+        # other note is correct, so the global duration trend stays near 1.0
+        # and note 3 is left as a local error.
+        ref = make_midi([60, 62, 64, 65], [0, 0.5, 1.0, 1.5], [0.4] * 4)
+        res = make_midi([60, 62, 64, 65], [0, 0.5, 1.0, 1.5], [0.4, 0.4, 0.1, 0.4])
+        result = compare_performance_ED(res, ref, show_detail=True)
+
+        note_three = [
+            n for n in result.event_details
+            if n["event_type"] == "note" and n.get("reference_index") == 3
+        ]
+        assert len(note_three) == 1
+        assert note_three[0]["duration_correct"] is False
+        assert note_three[0]["duration_signed_diff"] < 0
+        assert note_three[0]["duration_abs_diff"] > 0
+        assert "Note 3: duration is" in result.feedback_message
+        assert "shorter than the reference" in result.feedback_message
+
+    def test_note_held_too_long_is_reported_as_longer(self):
+        ref = make_midi([60, 62, 64, 65], [0, 0.5, 1.0, 1.5], [0.4] * 4)
+        res = make_midi([60, 62, 64, 65], [0, 0.5, 1.0, 1.5], [0.4, 0.4, 1.6, 0.4])
+        result = compare_performance_ED(res, ref, show_detail=True)
+
+        note_three = [
+            n for n in result.event_details
+            if n["event_type"] == "note" and n.get("reference_index") == 3
+        ]
+        assert note_three[0]["duration_signed_diff"] > 0
+        assert "longer than the reference" in result.feedback_message

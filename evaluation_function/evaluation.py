@@ -17,7 +17,8 @@ from .compare_MIDI import (
     DURATION_RELATIVE_THRESHOLD,
     GLOBAL_SLOW_THRESHOLD,
     GLOBAL_FAST_THRESHOLD,
-    DEFAULT_CHORD_ONSET_WINDOW
+    DEFAULT_CHORD_ONSET_WINDOW,
+    SHOW_DETAIL,
 )
 from .audio_processing import (
     is_audio_input,
@@ -110,7 +111,8 @@ def evaluation_function(
         ),
         chord_onset_window=params.get(
             "chord_onset_window", DEFAULT_CHORD_ONSET_WINDOW
-        )
+        ),
+        show_detail=params.get("show_detail", SHOW_DETAIL),
     )
 
     return {

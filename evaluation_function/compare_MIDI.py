@@ -11,15 +11,16 @@ Pipeline overview (called in order by compare_performance_ED):
               estimate_global_duration_scale
     Step 3 -- event_level_feedback      (note/chord-level feedback)
     Step 4 -- compute_stats             (summary counts)
-    Step 5 -- version 1: generate_feedback_message (human-readable text)
-              version 2: polished_feedback_message (polished version of human-readable text)
+    Step 5 -- summary_feedback   (practice-oriented summary, always shown)
+              detail_feedback    (per-note/chord errors, shown when show_detail)
+              build_feedback     (composes the two into the final message)
 """
 
 
 import numpy as np
 from collections import Counter
 
-# current version: feedback messages in polished_feedback_message()
+# Summary report -- always shown.
 from .feedback_messages import (
     pitch_summary_messages,
     timing_summary_messages,
@@ -31,15 +32,9 @@ from .feedback_messages import (
     report_section_titles,
     report_closing_message,
 )
-# old version: feedback messages in generate_feedback_message()
+# Detail report -- appended only when show_detail is on.
 from .feedback_messages import (
-    overview_tempo_messages,
-    overview_pitch_error_messages,
-    overview_missing_note_messages,
-    overview_extra_note_messages,
-    overview_chord_summary_message,
-    overview_chord_missing_message,
-    overview_chord_extra_message,
+    detail_caveat_message,
     note_detail_missing_message,
     note_detail_extra_message,
     note_detail_wrong_pitch_message,
@@ -51,7 +46,6 @@ from .feedback_messages import (
     chord_detail_missing_pitches_suffix,
     chord_detail_extra_pitches_suffix,
     chord_detail_timing_message,
-    report_overview_header,
     no_note_errors_message,
     no_chord_errors_message,
 )
@@ -76,6 +70,11 @@ GLOBAL_FAST_THRESHOLD = 0.85   # timing_scale < 0.85  -> "overall too fast"
 
 # Default threshold: notes starting within 50ms are grouped as one chord.
 DEFAULT_CHORD_ONSET_WINDOW = 0.05
+
+# Whether to append the per-note/chord detail section to the feedback.
+# Off by default: the per-note claims are only as reliable as the analysis
+# behind them, which is weakest when the response was transcribed from audio.
+SHOW_DETAIL = False
 
 # template and helper functions for chords
 # ------------------------------------------------------------------------------
@@ -609,7 +608,9 @@ def event_level_feedback(operations, response_events, ref_events,
             "timing_abs_diff" -> float (seconds) or None
             "timing_relative_diff" -> float or None
             "duration_correct" -> bool
-            "duration_abs_diff" -> float (seconds) or None
+            "duration_abs_diff" -> float (seconds, unsigned) or None
+            "duration_signed_diff" -> float (seconds, positive = held too
+                long, negative = too short) or None
             "duration_relative_diff" -> float or None
  
         For chord events, each dict has:
@@ -627,7 +628,9 @@ def event_level_feedback(operations, response_events, ref_events,
             "timing_abs_diff" -> float (seconds) or None
             "timing_relative_diff" -> float or None
             "duration_correct" -> bool
-            "duration_abs_diff" -> float (seconds) or None
+            "duration_abs_diff" -> float (seconds, unsigned) or None
+            "duration_signed_diff" -> float (seconds, positive = held too
+                long, negative = too short) or None
             "duration_relative_diff" -> float or None
     """
     # Compute IOI for each reference note: ioi[m] = ref_events[m]["start"] - ref_events[m-1]["start"]
@@ -666,6 +669,7 @@ def event_level_feedback(operations, response_events, ref_events,
                     "timing_relative_diff": None,
                     "duration_correct": False,
                     "duration_abs_diff": None,
+                    "duration_signed_diff": None,
                     "duration_relative_diff": None,
                 })
             else:
@@ -691,6 +695,7 @@ def event_level_feedback(operations, response_events, ref_events,
                     "timing_relative_diff": None,
                     "duration_correct": False,
                     "duration_abs_diff": None,
+                    "duration_signed_diff": None,
                     "duration_relative_diff": None,
                 })
         else:
@@ -712,7 +717,8 @@ def event_level_feedback(operations, response_events, ref_events,
 
             # Duration — residual after removing the global duration-scale trend
             predicted_duration = duration_scale * ref_event["event_duration"]
-            duration_abs_diff = abs(res_event["event_duration"] - predicted_duration)
+            duration_signed_diff = res_event["event_duration"] - predicted_duration
+            duration_abs_diff = abs(duration_signed_diff)
             ref_dur = max(ref_event["event_duration"], 0.05) # floor at 0.05s to avoid division by zero issues
             duration_relative_diff = duration_abs_diff / ref_dur
             duration_correct = (duration_relative_diff <= duration_relative_threshold)
@@ -733,6 +739,7 @@ def event_level_feedback(operations, response_events, ref_events,
                     "timing_relative_diff": timing_relative_diff,
                     "duration_correct": duration_correct,
                     "duration_abs_diff": duration_abs_diff,
+                    "duration_signed_diff": duration_signed_diff,
                     "duration_relative_diff": duration_relative_diff,
                 })
             else:
@@ -758,6 +765,7 @@ def event_level_feedback(operations, response_events, ref_events,
                     "timing_relative_diff": timing_relative_diff,
                     "duration_correct": duration_correct,
                     "duration_abs_diff": duration_abs_diff,
+                    "duration_signed_diff": duration_signed_diff,
                     "duration_relative_diff": duration_relative_diff,
                 })
 
@@ -865,26 +873,23 @@ def compute_stats(event_level_results, ref_events, timing_scale=1.0,
     return stats
 
 
-# Step 5 -- generate_feedback_message
+# Step 5 -- detail_feedback
 # ------------------------------------------------------------------------------
-def generate_feedback_message(event_details, response_events, ref_events, stats,
-                               global_slow_threshold=GLOBAL_SLOW_THRESHOLD,
-                               global_fast_threshold=GLOBAL_FAST_THRESHOLD):
+def detail_feedback(event_details, response_events, ref_events, stats):
     """
-    Generate human-readable feedback messages for the student.
+    List every note and chord error individually.
 
-    Part 1 - Overview: summary of timing trend, duration trend, and total counts
-             of each error type (pitch / missing / extra).
-    Part 2 - Note Detail: pitch, timing, duration errors per note
-    Part 3 - Chord Detail: errors per chord
+    Part 1 - Note Detail: pitch, timing, duration errors per note
+    Part 2 - Chord Detail: errors per chord
+
+    The overall picture is left to summary_feedback(); this function only
+    reports the individual errors that the summary rolls up into a score.
 
     Args:
         event_details: list of dicts, output of event_level_feedback()
         response_events: list of event dicts from group_notes_into_events
         ref_events: list of event dicts from group_notes_into_events
         stats: dict, output of compute_stats()
-        global_slow_threshold: timing_scale above this triggers "too slow" message
-        global_fast_threshold: timing_scale below this triggers "too fast" message
 
     Returns:
         feedback_message (str)
@@ -901,114 +906,10 @@ def generate_feedback_message(event_details, response_events, ref_events, stats,
         if ch["operation_type"] in ("match", "replacement")
     ]
 
-    timing_scale = stats["timing_scale"]
-    timing_offset = stats["timing_offset"]
-    duration_scale = stats["duration_scale"]
-
-    overview_messages = []
     note_detail_messages = []
     chord_detail_messages = []
 
-    # ---------- Part 1: Overview ----------
-    # Tempo: acceptable / too slow / too fast 
-    timing_pct = abs(timing_scale - 1.0) * 100
-    duration_pct = abs(duration_scale - 1.0) * 100
-    if timing_scale > 1:
-        timing_direction = "behind"
-    elif timing_scale < 1:
-        timing_direction = "ahead of"
-    else:
-        timing_direction = "the same as"
-
-    if duration_scale > 1:
-        duration_direction = "longer than"
-    elif duration_scale < 1:
-        duration_direction = "shorter than"
-    else:
-        duration_direction = "the same as"
-
-    if timing_scale > global_slow_threshold:
-        overview_messages.append(
-            overview_tempo_messages["slow"].format(
-                timing_pct=timing_pct, timing_direction=timing_direction,
-                duration_pct=duration_pct, duration_direction=duration_direction,
-            )
-        )
-    elif timing_scale < global_fast_threshold:
-        overview_messages.append(
-            overview_tempo_messages["fast"].format(
-                timing_pct=timing_pct, timing_direction=timing_direction,
-                duration_pct=duration_pct, duration_direction=duration_direction,
-            )
-        )
-    else:
-        overview_messages.append(
-            overview_tempo_messages["acceptable"].format(
-                timing_pct=timing_pct, timing_direction=timing_direction,
-                duration_pct=duration_pct, duration_direction=duration_direction,
-            )
-        )
-
-    # Wrong notes pitch counts
-    if stats["total_notes_wrong_pitch"] > 0:
-        s = "is" if stats["total_notes_wrong_pitch"] == 1 else "are"
-        note_word = "note" if stats["total_notes_wrong_pitch"] == 1 else "notes"
-        overview_messages.append(
-            overview_pitch_error_messages["has_errors"].format(
-                s=s, count=stats["total_notes_wrong_pitch"], note_word=note_word
-            )
-        )
-    else:
-        overview_messages.append(overview_pitch_error_messages["none"])
-    # Missing notes counts
-    if stats["total_notes_missing"] > 0:
-        s = "is" if stats["total_notes_missing"] == 1 else "are"
-        note_word = "note" if stats["total_notes_missing"] == 1 else "notes"
-        overview_messages.append(
-            overview_missing_note_messages["has_errors"].format(
-                s=s, count=stats["total_notes_missing"], note_word=note_word
-            )
-        )
-    else:
-        overview_messages.append(overview_missing_note_messages["none"])
-    # Extra notes counts
-    if stats["total_notes_extra"] > 0:
-        s = "is" if stats["total_notes_extra"] == 1 else "are"
-        note_word = "note" if stats["total_notes_extra"] == 1 else "notes"
-        overview_messages.append(
-            overview_extra_note_messages["has_errors"].format(
-                s=s, count=stats["total_notes_extra"], note_word=note_word
-            )
-        )
-    else:
-        overview_messages.append(overview_extra_note_messages["none"])
-    # Chord errors counts
-    if stats["total_chords_in_reference"] > 0:
-        total = stats["total_chords_in_reference"]
-        correct = stats["total_chords_correct"]
-        imperfect = stats["total_chords_imperfect"]
-        wrong = stats["total_chords_wrong"]
-        overview_messages.append(
-            overview_chord_summary_message.format(
-                correct=correct, total=total, imperfect=imperfect, wrong=wrong
-            )
-        )
-        if stats["total_chords_missing"] > 0:
-            c_word = "chord" if stats["total_chords_missing"] == 1 else "chords"
-            overview_messages.append(
-                overview_chord_missing_message.format(
-                    count=stats["total_chords_missing"], chord_word=c_word
-                )
-            )
-        if stats["total_chords_extra"] > 0:
-            c_word = "chord" if stats["total_chords_extra"] == 1 else "chords"
-            overview_messages.append(
-                overview_chord_extra_message.format(
-                    count=stats["total_chords_extra"], chord_word=c_word
-                )
-            )
-
-    # ---------- Part 2: Note Detail ----------
+    # ---------- Part 1: Note Detail ----------
     # Missing / extra notes
     for n in note_events:
         if n["operation_type"] == "missing":
@@ -1050,16 +951,16 @@ def generate_feedback_message(event_details, response_events, ref_events, stats,
     # Local duration errors — these are residuals after removing the global duration trend
     for n in paired_notes:
         if not n["duration_correct"]:
-            direction = "longer" if n["duration_abs_diff"] > 0 else "shorter"
-            duration_pct_err = abs(n["duration_relative_diff"]) * 100
+            direction = "longer" if n["duration_signed_diff"] > 0 else "shorter"
+            duration_pct_err = n["duration_relative_diff"] * 100
             note_detail_messages.append(
                 note_detail_duration_message.format(
-                    index=n["reference_index"], abs_diff=abs(n["duration_abs_diff"]),
+                    index=n["reference_index"], abs_diff=n["duration_abs_diff"],
                     direction=direction, relative_pct=duration_pct_err,
                 )
             )
 
-    # ---------- Part 3: Chord Detail ----------
+    # ---------- Part 2: Chord Detail ----------
     # Missing / extra chords
     for ch in chord_events:
         if ch["operation_type"] == "missing":
@@ -1103,12 +1004,10 @@ def generate_feedback_message(event_details, response_events, ref_events, stats,
                 )
             )
 
-    all_messages = [report_overview_header] + overview_messages
-
     if note_detail_messages:
-        all_messages = all_messages + ["", "Note Detail:"] + note_detail_messages
+        all_messages = ["Note Detail:"] + note_detail_messages
     else:
-        all_messages = all_messages + ["", no_note_errors_message]
+        all_messages = [no_note_errors_message]
 
     if stats["total_chords_in_reference"] > 0:
         if chord_detail_messages:
@@ -1121,10 +1020,11 @@ def generate_feedback_message(event_details, response_events, ref_events, stats,
     return "\n".join(all_messages)
 
 
-# Current version of feedback messages
-def polished_feedback_message(event_details, response_events, ref_events, stats,
-                               global_slow_threshold=GLOBAL_SLOW_THRESHOLD,
-                               global_fast_threshold=GLOBAL_FAST_THRESHOLD):
+# Step 5 -- summary_feedback
+# ------------------------------------------------------------------------------
+def summary_feedback(event_details, response_events, ref_events, stats,
+                     global_slow_threshold=GLOBAL_SLOW_THRESHOLD,
+                     global_fast_threshold=GLOBAL_FAST_THRESHOLD):
     """
     Generate concise, practice-oriented feedback that aims to:
         1. summarise current performance level qualitatively
@@ -1299,6 +1199,49 @@ def polished_feedback_message(event_details, response_events, ref_events, stats,
     return "\n".join(all_messages)
 
 
+# Step 5 -- build_feedback
+# ------------------------------------------------------------------------------
+def build_feedback(event_details, response_events, ref_events, stats,
+                   global_slow_threshold=GLOBAL_SLOW_THRESHOLD,
+                   global_fast_threshold=GLOBAL_FAST_THRESHOLD,
+                   show_detail=SHOW_DETAIL):
+    """
+    Assemble the feedback message shown to the student.
+
+    The summary is always included. The per-note/chord detail is appended
+    only when show_detail is on, because those individual claims are only
+    as reliable as the analysis behind them.
+
+    Args:
+        event_details: list of dicts, output of event_level_feedback()
+        response_events: list of event dicts from group_notes_into_events
+        ref_events: list of event dicts from group_notes_into_events
+        stats: dict, output of compute_stats()
+        global_slow_threshold: timing_scale above this triggers "too slow" message
+        global_fast_threshold: timing_scale below this triggers "too fast" message
+        show_detail: bool, append the per-note/chord detail section.
+            Default False. Teacher-configurable.
+
+    Returns:
+        feedback_message (str)
+    """
+    parts = [
+        summary_feedback(
+            event_details, response_events, ref_events, stats,
+            global_slow_threshold=global_slow_threshold,
+            global_fast_threshold=global_fast_threshold,
+        )
+    ]
+
+    if show_detail:
+        parts.append(detail_caveat_message)
+        parts.append(
+            detail_feedback(event_details, response_events, ref_events, stats)
+        )
+
+    return "\n\n".join(parts)
+
+
 # FeedbackResult class
 # ------------------------------------------------------------------------------
 class FeedbackResult:
@@ -1354,7 +1297,8 @@ def compare_performance_ED(responseMIDI, refMIDI,
                             duration_relative_threshold=DURATION_RELATIVE_THRESHOLD,
                             global_slow_threshold=GLOBAL_SLOW_THRESHOLD,
                             global_fast_threshold=GLOBAL_FAST_THRESHOLD,
-                            chord_onset_window=DEFAULT_CHORD_ONSET_WINDOW):
+                            chord_onset_window=DEFAULT_CHORD_ONSET_WINDOW,
+                            show_detail=SHOW_DETAIL):
     """
     Full pipeline: normalisation -> grouping -> alignment -> global trends
                    -> event-level evaluation -> summary statistics -> feedback.
@@ -1365,10 +1309,11 @@ def compare_performance_ED(responseMIDI, refMIDI,
         gap_penalty: cost of an unaligned event
         timing_relative_threshold: see event_level_feedback()
         duration_relative_threshold: see event_level_feedback()
-        global_slow_threshold: see generate_feedback_message()
-        global_fast_threshold: see generate_feedback_message()
+        global_slow_threshold: see summary_feedback()
+        global_fast_threshold: see summary_feedback()
         chord_onset_window: float (seconds), notes within this window are
             grouped into a chord. Default 0.050 (50ms). Teacher-configurable.
+        show_detail: see build_feedback(). Default False. Teacher-configurable.
  
     Returns:
         FeedbackResult object containing all analysis results
@@ -1410,10 +1355,11 @@ def compare_performance_ED(responseMIDI, refMIDI,
     )
 
     # Step 5: Generate human-readable feedback
-    feedback_message = polished_feedback_message(
+    feedback_message = build_feedback(
         event_details, response_events, ref_events, stats,
         global_slow_threshold=global_slow_threshold,
         global_fast_threshold=global_fast_threshold,
+        show_detail=show_detail,
     )
 
     # Step 6: Overall pass/fail judgement

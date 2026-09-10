@@ -31,14 +31,18 @@ ENV FUNCTION_COMMAND="python"
 # Args to start the evaluation function with
 ENV FUNCTION_ARGS="-m,evaluation_function.main"
 
-# The transport to use for the RPC server
+# The transport to use for the RPC server. Use the unix-socket transport
+# ("ipc"), not "stdio": under stdio the worker's stdout *is* the RPC wire, and
+# this function's heavy import stack (basic-pitch / onnxruntime / numba, plus
+# the model load in evaluation.py that runs at import time) writes to stdout
+# outside any redirect guard, corrupting the stream and producing 503s.
 ENV FUNCTION_INTERFACE="rpc"
-ENV FUNCTION_RPC_TRANSPORT="stdio"
+ENV FUNCTION_RPC_TRANSPORT="ipc"
 
-# The worker pulls in torch on its first request; on a small (1024 MB) Lambda
-# that cold-start import runs ~30-40s. Give shimmy room to wait for it instead
-# of killing the half-booted worker at the 30s default. Keep these below the
-# Lambda function timeout (currently 175s).
+# The worker pulls in a large ML stack on its first request; on a small
+# (1024 MB) Lambda that cold-start import runs ~30-40s. Give shimmy room to
+# wait for it instead of killing the half-booted worker at the 30s default.
+# Keep these below the Lambda function timeout (currently 175s).
 ENV FUNCTION_WORKER_START_TIMEOUT="150s"
 ENV FUNCTION_WORKER_SEND_TIMEOUT="150s"
 

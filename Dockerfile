@@ -36,6 +36,10 @@ RUN python -m compileall -q .
 # Copy the evaluation function to the app directory
 COPY evaluation_function ./evaluation_function
 
+# The test fixtures are needed too: the healthcheck command runs the test
+# suite, and evaluation_test.py reads its bulk cases from here.
+COPY data ./data
+
 # Command to start the evaluation function with
 ENV FUNCTION_COMMAND="python"
 

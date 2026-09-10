@@ -140,8 +140,11 @@ README.md
 # GitHub
 .github
 
-# Data folder
-data/
+# Data folder: keep it out of the image apart from the test fixture, which
+# the healthcheck needs because that command runs the test suite. Datasets
+# and recordings that land here must not be baked into the image.
+data/*
+!data/longMIDIsequence.json
 
 # Test reports
 reports/

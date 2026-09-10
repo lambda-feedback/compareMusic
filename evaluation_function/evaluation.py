@@ -7,8 +7,8 @@ All evaluation logic is in compare_MIDI.py, this file is for the platform interf
 """
 
 import json
-from typing import Any
-from lf_toolkit.evaluation import Result, Params
+from typing import Any, Dict
+from lf_toolkit.shared.params import Params
 
 from .compare_MIDI import (
     compare_performance_ED,
@@ -74,7 +74,7 @@ def evaluation_function(
     response: Any,
     answer: Any,
     params: Params,
-) -> Result:
+) -> Dict[str, Any]:
     """
     Function used to evaluate a student response.
     ---

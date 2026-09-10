@@ -21,7 +21,10 @@ matplotlib = "^3.11.0"
 pretty-midi = "^0.2.11"
 pandas = "^3.0.3"
 librosa = "^0.11.0"
-basic-pitch = "^0.4.0"
+# The "onnx" extra pins an inference backend explicitly. Without it,
+# basic-pitch relies on platform markers that leave linux/arm64 with no
+# backend at all, so the container dies at import. See backend_test.py.
+basic-pitch = { version = "^0.4.0", extras = ["onnx"] }
 setuptools = "<81"
 tqdm = "^4.68.4"
 huggingface-hub = "^1.23.0"

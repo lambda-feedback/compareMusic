@@ -72,6 +72,14 @@ class TestSubmissionsWithoutNotes(unittest.TestCase):
         assert "audio" in feedback.lower()
         assert "practice.wav" in feedback
 
+    def test_signed_url_is_described_without_the_signature(self):
+        feedback = feedback_for(
+            "https://bucket.example.com/uploads/practice.wav?X-Amz-Signature=abc"
+        )
+        assert "audio" in feedback.lower()
+        assert "practice.wav" in feedback
+        assert "X-Amz-Signature" not in feedback
+
     def test_unreadable_submission_is_reported(self):
         assert feedback_for("this is not MIDI at all") == UNREADABLE_MESSAGE
 

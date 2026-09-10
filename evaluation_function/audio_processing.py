@@ -17,8 +17,11 @@ import contextlib
 import io
 import os
 
-from basic_pitch import ICASSP_2022_MODEL_PATH
-from basic_pitch.inference import Model, predict
+# basic_pitch (and its librosa / numba / onnxruntime dependencies) is a very
+# heavy import - tens of seconds on a cold Lambda. It is imported lazily inside
+# the functions that need it so that importing this module, which happens while
+# the RPC worker is still booting and has not yet bound its socket, stays cheap.
+# See the note in evaluation.py.
 
 
 # Parameters
@@ -74,10 +77,19 @@ def is_audio_input(response):
 
 # Load the model
 # ---------------------------------------------------------------------
-def load_basic_pitch_model(model_path=ICASSP_2022_MODEL_PATH):
+def load_basic_pitch_model(model_path=None):
     """
     Load the pretrained Basic Pitch model once.
+
+    model_path defaults to Basic Pitch's bundled ICASSP 2022 model. The
+    basic_pitch import happens here rather than at module load so the worker
+    can start serving before paying the transcription stack's import cost.
     """
+    from basic_pitch import ICASSP_2022_MODEL_PATH
+    from basic_pitch.inference import Model
+
+    if model_path is None:
+        model_path = ICASSP_2022_MODEL_PATH
     return Model(model_path)
 
 
@@ -129,6 +141,8 @@ def transcribe_audio(
     # Basic Pitch prints progress information to stdout/stderr; hide
     # it so notebook output stays readable during batch runs.
     with contextlib.redirect_stdout(hidden_output), contextlib.redirect_stderr(hidden_output):
+        from basic_pitch.inference import predict
+
         _, predicted_midi, _ = predict(
             str(audio_path),
             model_or_model_path=model,

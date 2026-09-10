@@ -24,8 +24,21 @@ from .audio_processing import (
     load_basic_pitch_model,
     transcription_pipeline,
 )
-# Load the Basic Pitch model once, when this file is first imported.
-BASIC_PITCH_MODEL = load_basic_pitch_model()
+
+# The Basic Pitch model is loaded lazily, on the first audio request, rather
+# than at import time. The RPC worker has to bind its IPC socket within a few
+# seconds of starting or shimmy stops trying to connect to it; loading the
+# model (and importing basic-pitch / librosa) at import pushed that past the
+# window, so every request came back as "EOF" / "Service Unavailable".
+_BASIC_PITCH_MODEL = None
+
+
+def get_basic_pitch_model():
+    """Load the Basic Pitch model on first use and cache it for later calls."""
+    global _BASIC_PITCH_MODEL
+    if _BASIC_PITCH_MODEL is None:
+        _BASIC_PITCH_MODEL = load_basic_pitch_model()
+    return _BASIC_PITCH_MODEL
 
 
 def parse_json_input(data: Any) -> Any:
@@ -50,7 +63,7 @@ def prepare_input(raw_input: Any) -> Any:
     """
     if is_audio_input(raw_input):
         compare_midi_input, predicted_notes, runtime_seconds = transcription_pipeline(
-            raw_input, BASIC_PITCH_MODEL
+            raw_input, get_basic_pitch_model()
         )
         return compare_midi_input
 

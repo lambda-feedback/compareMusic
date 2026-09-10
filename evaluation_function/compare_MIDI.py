@@ -40,6 +40,28 @@ GLOBAL_FAST_THRESHOLD = 0.85   # timing_scale < 0.85  -> "overall too fast"
 # Default threshold: notes starting within 50ms are grouped as one chord.
 DEFAULT_CHORD_ONSET_WINDOW = 0.05
 
+# Feedback for the two degenerate cases, where there is nothing to compare.
+# These are named rather than written inline so that tests can assert which
+# case was hit without depending on the wording, which is free to change.
+NO_REFERENCE_NOTES_MESSAGE = "\n".join([
+    "Practice Summary",
+    "This question has no reference notes to compare your performance "
+    "against, so it could not be evaluated. Please let your teacher know.",
+])
+
+NO_RESPONSE_NOTES_MESSAGE = "\n".join([
+    "Practice Summary",
+    "No notes were detected in your submission, so there was nothing "
+    "to compare against the reference.",
+    "",
+    "What to check",
+    "If you submitted a recording, check that it is not silent and that "
+    "your instrument can be heard clearly. If you submitted MIDI, check "
+    "that it contains notes.",
+    "",
+    "Have another go when you are ready.",
+])
+
 # template and helper functions for chords
 # ------------------------------------------------------------------------------
 # Chord template dictionary.
@@ -1101,25 +1123,10 @@ def polished_feedback_message(event_details, response_events, ref_events, stats,
     # who submitted nothing that they "missed" every note, or praising a
     # perfect match against a reference that contains no notes at all.
     if len(ref_events) == 0:
-        return "\n".join([
-            "Practice Summary",
-            "This question has no reference notes to compare your performance "
-            "against, so it could not be evaluated. Please let your teacher know.",
-        ])
+        return NO_REFERENCE_NOTES_MESSAGE
 
     if len(response_events) == 0:
-        return "\n".join([
-            "Practice Summary",
-            "No notes were detected in your submission, so there was nothing "
-            "to compare against the reference.",
-            "",
-            "What to check",
-            "If you submitted a recording, check that it is not silent and that "
-            "your instrument can be heard clearly. If you submitted MIDI, check "
-            "that it contains notes.",
-            "",
-            "Have another go when you are ready.",
-        ])
+        return NO_RESPONSE_NOTES_MESSAGE
 
     note_events  = [n for n in event_details if n["event_type"] == "note"]
     chord_events = [ch for ch in event_details if ch["event_type"] == "chord"]

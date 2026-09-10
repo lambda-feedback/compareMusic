@@ -38,6 +38,8 @@ from .compare_MIDI import (
     event_level_feedback,
     compute_stats,
     compare_performance_ED,
+    NO_REFERENCE_NOTES_MESSAGE,
+    NO_RESPONSE_NOTES_MESSAGE,
     DEFAULT_GAP_PENALTY,
     TIMING_RELATIVE_THRESHOLD,
     DURATION_RELATIVE_THRESHOLD,
@@ -747,14 +749,15 @@ class TestEmptyResponse(unittest.TestCase):
 
     def test_feedback_says_no_notes_were_detected(self):
         # "You missed four notes" is technically true but unhelpful when the
-        # student submitted nothing at all. The message should say so plainly.
+        # student submitted nothing at all. Compare against the constant the
+        # code returns, so that rewording the message does not break this.
         result = compare_performance_ED(EMPTY_MIDI, FOUR_NOTE_REFERENCE)
-        assert "no notes" in result.feedback_message.lower()
+        assert result.feedback_message == NO_RESPONSE_NOTES_MESSAGE
 
     def test_through_the_platform_entry_point(self):
         result = evaluation_function(EMPTY_MIDI, FOUR_NOTE_REFERENCE, {})
         assert result["is_correct"] is False
-        assert "no notes" in result["feedback"].lower()
+        assert result["feedback"] == NO_RESPONSE_NOTES_MESSAGE
 
 
 class TestEmptyReference(unittest.TestCase):
@@ -769,7 +772,7 @@ class TestEmptyReference(unittest.TestCase):
 
     def test_feedback_points_at_the_question_not_the_student(self):
         result = compare_performance_ED(FOUR_NOTE_REFERENCE, EMPTY_MIDI)
-        assert "reference" in result.feedback_message.lower()
+        assert result.feedback_message == NO_REFERENCE_NOTES_MESSAGE
 
 
 class TestBothEmpty(unittest.TestCase):
@@ -782,6 +785,12 @@ class TestBothEmpty(unittest.TestCase):
         # an empty response trivially "matches" an empty reference.
         result = compare_performance_ED(EMPTY_MIDI, EMPTY_MIDI)
         assert result.is_correct is False
+
+    def test_reports_the_missing_reference_rather_than_the_empty_response(self):
+        # With nothing on either side, the misconfigured question is the more
+        # useful thing to report, so that branch must win.
+        result = compare_performance_ED(EMPTY_MIDI, EMPTY_MIDI)
+        assert result.feedback_message == NO_REFERENCE_NOTES_MESSAGE
 
 
 class TestShortSubmissions(unittest.TestCase):

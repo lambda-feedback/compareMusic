@@ -46,7 +46,11 @@ from .compare_MIDI import (
     DEFAULT_CHORD_ONSET_WINDOW,
     SHOW_DETAIL,
 )
-from .feedback_messages import detail_caveat_message, report_section_titles
+from .feedback_messages import (
+    detail_caveat_message,
+    detail_section_titles,
+    report_section_titles,
+)
 from .evaluation import evaluation_function
 
 
@@ -724,7 +728,7 @@ class TestShowDetail(unittest.TestCase):
         assert SHOW_DETAIL is False
         feedback = compare_performance_ED(self.RES, self.REF).feedback_message
         assert report_section_titles["summary"] in feedback
-        assert "Note Detail:" not in feedback
+        assert detail_section_titles["notes"] not in feedback
         assert detail_caveat_message not in feedback
 
     def test_show_detail_appends_detail_below_the_summary(self):
@@ -733,20 +737,20 @@ class TestShowDetail(unittest.TestCase):
         ).feedback_message
         # The summary is not replaced by the detail, it is still on top.
         assert report_section_titles["summary"] in feedback
-        assert "Note Detail:" in feedback
-        assert feedback.index(report_section_titles["summary"]) < feedback.index("Note Detail:")
+        assert detail_section_titles["notes"] in feedback
+        assert feedback.index(report_section_titles["summary"]) < feedback.index(detail_section_titles["notes"])
 
     def test_detail_section_is_introduced_by_the_caveat(self):
         feedback = compare_performance_ED(
             self.RES, self.REF, show_detail=True
         ).feedback_message
         assert detail_caveat_message in feedback
-        assert feedback.index(detail_caveat_message) < feedback.index("Note Detail:")
+        assert feedback.index(detail_caveat_message) < feedback.index(detail_section_titles["notes"])
 
     def test_show_detail_passed_through_params(self):
-        assert "Note Detail:" not in evaluation_function(self.RES, self.REF, {})["feedback"]
+        assert detail_section_titles["notes"] not in evaluation_function(self.RES, self.REF, {})["feedback"]
         with_detail = evaluation_function(self.RES, self.REF, {"show_detail": True})
-        assert "Note Detail:" in with_detail["feedback"]
+        assert detail_section_titles["notes"] in with_detail["feedback"]
 
     def test_note_held_too_short_is_reported_as_shorter(self):
         # Note 3 is held for a quarter of its reference duration while every

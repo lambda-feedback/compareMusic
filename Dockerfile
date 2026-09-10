@@ -33,11 +33,19 @@ ENV FUNCTION_ARGS="-m,evaluation_function.main"
 
 # The transport to use for the RPC server. Use the unix-socket transport
 # ("ipc"), not "stdio": under stdio the worker's stdout *is* the RPC wire, and
-# this function's heavy import stack (basic-pitch / onnxruntime / numba, plus
-# the model load in evaluation.py that runs at import time) writes to stdout
-# outside any redirect guard, corrupting the stream and producing 503s.
+# this function's heavy import stack (basic-pitch / onnxruntime / numba) writes
+# to stdout outside any redirect guard, which would corrupt the stream.
+#
+# FUNCTION_* configures shimmy (the Go side). The Python worker picks its
+# transport separately from EVAL_* (see lf_toolkit/io/serve.py, which defaults
+# EVAL_RPC_TRANSPORT to "stdio"), so set those explicitly too - otherwise the
+# worker comes up as a StdioServer, never binds /tmp/eval.sock, and every
+# request fails with "error sending rpc request: EOF".
 ENV FUNCTION_INTERFACE="rpc"
 ENV FUNCTION_RPC_TRANSPORT="ipc"
+ENV EVAL_IO="rpc"
+ENV EVAL_RPC_TRANSPORT="ipc"
+ENV EVAL_RPC_IPC_ENDPOINT="/tmp/eval.sock"
 
 # The worker pulls in a large ML stack on its first request; on a small
 # (1024 MB) Lambda that cold-start import runs ~30-40s. Give shimmy room to

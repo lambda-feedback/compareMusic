@@ -18,7 +18,13 @@ import json
 import unittest
 
 from .evaluation_test import make_midi
-from .preview import Params, preview_function
+from .preview import (
+    NO_NOTES_MESSAGE,
+    UNREADABLE_MESSAGE,
+    Params,
+    note_name,
+    preview_function,
+)
 
 
 def feedback_for(response):
@@ -36,10 +42,13 @@ class TestMidiSubmissions(unittest.TestCase):
         assert "2.5" in feedback_for(midi)
 
     def test_reports_the_pitch_range(self):
-        midi = make_midi([60, 72], [0.0, 0.5], [0.4, 0.4])
+        # The names themselves are pinned by TestNoteName below, so this only
+        # checks that the lowest and highest pitches are the ones reported.
+        midi = make_midi([60, 64, 72], [0.0, 0.5, 1.0], [0.4, 0.4, 0.4])
         feedback = feedback_for(midi)
-        assert "C4" in feedback
-        assert "C5" in feedback
+        assert note_name(60) in feedback
+        assert note_name(72) in feedback
+        assert note_name(64) not in feedback
 
     def test_accepts_a_json_string(self):
         # The platform sends response and answer as JSON strings.
@@ -55,7 +64,7 @@ class TestMidiSubmissions(unittest.TestCase):
 class TestSubmissionsWithoutNotes(unittest.TestCase):
 
     def test_empty_note_list_is_reported(self):
-        assert "no notes" in feedback_for({"notes": []}).lower()
+        assert feedback_for({"notes": []}) == NO_NOTES_MESSAGE
 
     def test_audio_path_is_described_without_transcribing(self):
         # Transcription takes seconds, which is far too slow for a preview.
@@ -63,11 +72,23 @@ class TestSubmissionsWithoutNotes(unittest.TestCase):
         assert "audio" in feedback.lower()
         assert "practice.wav" in feedback
 
-    def test_unreadable_submission_does_not_raise(self):
-        feedback = feedback_for("this is not MIDI at all")
-        assert feedback
+    def test_unreadable_submission_is_reported(self):
+        assert feedback_for("this is not MIDI at all") == UNREADABLE_MESSAGE
 
     def test_result_always_has_a_preview(self):
         for response in ({"notes": []}, "nonsense", 42, None):
             result = preview_function(response, Params())
             assert result["preview"] is not None
+
+
+class TestNoteName(unittest.TestCase):
+    """Pitch numbering is a fact about MIDI, not a wording choice."""
+
+    def test_middle_c(self):
+        assert note_name(60) == "C4"
+
+    def test_octave_above_middle_c(self):
+        assert note_name(72) == "C5"
+
+    def test_accidental(self):
+        assert note_name(61) == "C#4"

@@ -21,6 +21,14 @@ from lf_toolkit.preview import Result, Params, Preview
 from .audio_processing import AUDIO_EXTENSIONS
 from .compare_MIDI import PITCH_CLASS_NAMES
 
+# Fixed messages, named so that tests can assert which case was hit without
+# depending on the wording, which is free to change.
+NO_NOTES_MESSAGE = "No notes found in this submission."
+UNREADABLE_MESSAGE = (
+    "This submission could not be read as MIDI note data "
+    "or as an audio recording."
+)
+
 
 def note_name(pitch):
     """Convert a MIDI pitch number to a name, e.g. 60 -> "C4"."""
@@ -30,7 +38,7 @@ def note_name(pitch):
 def summarise_notes(notes):
     """One line describing a list of notes: how many, how long, what range."""
     if not notes:
-        return "No notes found in this submission."
+        return NO_NOTES_MESSAGE
 
     count = len(notes)
     noun = "note" if count == 1 else "notes"
@@ -72,7 +80,4 @@ def preview_function(response: Any, params: Params) -> Result:
         return Result(preview=Preview(feedback=summarise_notes(response["notes"])))
 
     except Exception:
-        return Result(preview=Preview(
-            feedback="This submission could not be read as MIDI note data "
-                     "or as an audio recording."
-        ))
+        return Result(preview=Preview(feedback=UNREADABLE_MESSAGE))

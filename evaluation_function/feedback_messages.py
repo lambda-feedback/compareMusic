@@ -13,6 +13,8 @@ Two groups, matching the two renderers in compare_MIDI.py:
 # --- summary ---
 # =================================================================
 # ---------- current performance summary (pitch / timing / chords) ----------
+# Keyed by note pitch accuracy: excellent >= 0.90, good >= 0.70,
+# else needs_practice.
 pitch_summary_messages = {
     "excellent": (
         "Great! Most notes were played correctly, you've got a good "
@@ -32,6 +34,7 @@ pitch_summary_messages = {
     ),
 }
 
+# Keyed by note timing accuracy, same cut-offs as pitch.
 timing_summary_messages = {
     "excellent": (
         "Great timing consistency between notes, you've got a good "
@@ -52,6 +55,8 @@ timing_summary_messages = {
     ),
 }
 
+# Keyed by median chord accuracy, same cut-offs. needs_practice is also
+# used when no chord could be scored at all.
 chord_summary_messages = {
     "needs_practice": (
         "Simultaneous notes are often hard to play correctly at the "
@@ -60,7 +65,7 @@ chord_summary_messages = {
         "practice each chord separately first and make sure all "
         "required notes sound together. Then you can reconnect the "
         "chords to their surrounding sections and practice at a "
-        "slower tempo carefully. "
+        "slower tempo carefully."
     ),
     "excellent": "Nice! The chords were played accurately overall.",
     "good": (
@@ -72,6 +77,9 @@ chord_summary_messages = {
 }
 
 # ---------- overall tempo feedback ----------
+# Keyed by timing_scale against GLOBAL_SLOW_THRESHOLD / GLOBAL_FAST_THRESHOLD
+# in compare_MIDI.py: above slow -> "slow", below fast -> "fast", else
+# "on_tempo".
 tempo_messages = {
     "slow": (
         "Your overall tempo was slower than the reference. This is not "
@@ -93,6 +101,8 @@ tempo_messages = {
 }
 
 # ---------- completeness feedback (missing / extra notes & chords) ----------
+# Keyed by the share of reference events missed or added: none -> "perfect",
+# up to 10% -> "mostly_complete", else "needs_more_practice".
 completeness_level_messages = {
     "perfect": (
         "You completed the performance without missing or adding any "
@@ -107,18 +117,24 @@ completeness_level_messages = {
         "No worries! It is common to miss or play extra notes when "
         "learning a new piece, especially difficult passages. You can "
         "slow down in your next practice and pay more attention to "
-        "your fingering and hand position. "
+        "your fingering and hand position."
     ),
 }
 
 # ---------- next practice focus ----------
-focus_messages = {
-    "pitch": "You've got a good understanding of the rhythm. ",
-    "timing": "You've got a good understanding of the melody. ",
-    "chords": "You've got a good understanding of the melody and the rhythm. ",
+# Opens the focus section by praising the areas that are NOT the focus, so
+# the key names what is being praised. Picked by the weakest score: >= 0.70
+# earns the named praise, below that "developing". The trailing spaces are
+# needed -- these are concatenated onto focus_advice_messages.
+focus_preamble_messages = {
+    "rhythm": "You've got a good understanding of the rhythm. ",
+    "melody": "You've got a good understanding of the melody. ",
+    "melody_and_rhythm": "You've got a good understanding of the melody and the rhythm. ",
     "developing": "Good progress! ",
 }
 
+# Keyed by the weakest area. "excellent_overall" is used instead whenever
+# that weakest score is already >= 0.90.
 focus_advice_messages = {
     "excellent_overall": (
         "Excellent work! You already have a good understanding of the "
@@ -168,7 +184,7 @@ detail_caveat_message = (
 )
 
 note_detail_missing_message = "Note {index} (pitch {pitch}) is missing in your performance."
-note_detail_extra_message = "Extra note played: pitch {pitch} at t={time:.2f}s "
+note_detail_extra_message = "Extra note played: pitch {pitch} at t={time:.2f}s"
 note_detail_wrong_pitch_message = (
     "Note {index}: wrong pitch — expected {expected}, played {played} "
     "({semitones} semitone(s) off)."
@@ -185,6 +201,8 @@ note_detail_duration_message = (
 
 chord_detail_missing_message = "Chord {index} ({chord_name}) is missing in your performance."
 chord_detail_extra_message = "Extra chord played: {chord_name} at event position {index}."
+# The trailing spaces below are needed -- the two suffixes are concatenated
+# onto the accuracy message when a chord has missing or extra notes.
 chord_detail_accuracy_message = (
     "Chord {index} (expected {expected}, you played {played}): "
     "{accuracy}% accurate. "
@@ -195,6 +213,11 @@ chord_detail_timing_message = (
     "Chord {index}: timing is off by {abs_diff:.2f}s "
     "({relative_pct:.0f}% of the expected interval)."
 )
+
+detail_section_titles = {
+    "notes": "Note Detail:",
+    "chords": "Chord Detail:",
+}
 
 no_note_errors_message = "All melody notes played correctly!!"
 no_chord_errors_message = "Great performance! No further issues on chords found."

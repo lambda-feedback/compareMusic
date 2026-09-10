@@ -27,7 +27,7 @@ from .feedback_messages import (
     chord_summary_messages,
     tempo_messages,
     completeness_level_messages,
-    focus_messages,
+    focus_preamble_messages,
     focus_advice_messages,
     report_section_titles,
     report_closing_message,
@@ -35,6 +35,7 @@ from .feedback_messages import (
 # Detail report -- appended only when show_detail is on.
 from .feedback_messages import (
     detail_caveat_message,
+    detail_section_titles,
     note_detail_missing_message,
     note_detail_extra_message,
     note_detail_wrong_pitch_message,
@@ -1005,14 +1006,14 @@ def detail_feedback(event_details, response_events, ref_events, stats):
             )
 
     if note_detail_messages:
-        all_messages = ["Note Detail:"] + note_detail_messages
+        all_messages = [detail_section_titles["notes"]] + note_detail_messages
     else:
         all_messages = [no_note_errors_message]
 
     if stats["total_chords_in_reference"] > 0:
         if chord_detail_messages:
             all_messages = (
-                all_messages + ["", "Chord Detail:"] + chord_detail_messages
+                all_messages + ["", detail_section_titles["chords"]] + chord_detail_messages
             )
         else:
             all_messages = all_messages + ["", no_chord_errors_message]
@@ -1168,13 +1169,16 @@ def summary_feedback(event_details, response_events, ref_events, stats,
     if main_focus_score is not None and main_focus_score >= 0.90:
         focus_message = focus_advice_messages["excellent_overall"]
     elif main_focus == "pitch":
-        overall_message = focus_messages["pitch"] if main_focus_score >= 0.70 else focus_messages["developing"]
+        overall_message = (focus_preamble_messages["rhythm"] if main_focus_score >= 0.70
+                           else focus_preamble_messages["developing"])
         focus_message = overall_message + focus_advice_messages["pitch"]
     elif main_focus == "timing":
-        overall_message = focus_messages["timing"] if main_focus_score >= 0.70 else focus_messages["developing"]
+        overall_message = (focus_preamble_messages["melody"] if main_focus_score >= 0.70
+                           else focus_preamble_messages["developing"])
         focus_message = overall_message + focus_advice_messages["timing"]
     elif main_focus == "chords":
-        overall_message = focus_messages["chords"] if main_focus_score >= 0.70 else focus_messages["developing"]
+        overall_message = (focus_preamble_messages["melody_and_rhythm"] if main_focus_score >= 0.70
+                           else focus_preamble_messages["developing"])
         focus_message = overall_message + focus_advice_messages["chords"]
     else:
         # scores was empty: no reference notes/chords to evaluate at all.

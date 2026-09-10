@@ -1,12 +1,16 @@
 """
 feedback_messages.py
 =====================
-All feedback text shown to students, plain text only, 
-compare_MIDI.py should only decide which message to use. 
+All feedback text shown to students, plain text only,
+compare_MIDI.py should only decide which message to use.
+
+Two groups, matching the two renderers in compare_MIDI.py:
+  - summary: shown by summary_feedback(), always part of the report.
+  - detail:  shown by detail_feedback(), appended only when show_detail is on.
 """
 
 
-# Current version: feedback messages in polished_feedback_message()
+# --- summary ---
 # =================================================================
 # ---------- current performance summary (pitch / timing / chords) ----------
 pitch_summary_messages = {
@@ -153,54 +157,15 @@ report_section_titles = {
 report_closing_message = "Keep up the good work and enjoy your music journey!"
 
 
-# Old version: feedback messages in generate_feedback_message()
+# --- detail ---
 # =================================================================
-overview_tempo_messages = {
-    "slow": (
-        "Overall, your tempo is slower than the reference "
-        "(timing is about {timing_pct:.0f}% {timing_direction} the reference in general while "
-        "notes are held about {duration_pct:.0f}% {duration_direction} the reference). "
-        "No worries! You will get better when you practice more to get more familiar with it!"
-    ),
-    "fast": (
-        "Overall, your tempo is faster than the reference "
-        "(timing is about {timing_pct:.0f}% {timing_direction} the reference in general while "
-        "notes are held about {duration_pct:.0f}% {duration_direction} the reference). "
-        "Don't rush even if you are confident in your performance."
-        "Slow down and give each note its full value."
-    ),
-    "acceptable": (
-        "Timing: your overall tempo is within an acceptable range. Good job! "
-        "The timing is about {timing_pct:.0f}% {timing_direction} the reference in general while "
-        "notes are held about {duration_pct:.0f}% {duration_direction} than the reference."
-    ),
-}
-
-overview_pitch_error_messages = {
-    "has_errors": "There {s} {count} {note_word} played with the wrong pitch.",
-    "none": "There are no pitch errors. Well done!",
-}
-
-overview_missing_note_messages = {
-    "has_errors": "There {s} {count} {note_word} you missed from the reference.",
-    "none": "There are no missing notes. Great!",
-}
-
-overview_extra_note_messages = {
-    "has_errors": (
-        "There {s} {count} extra {note_word} played during practice. "
-        "You may need to adjust your fingering or hand position to avoid extra notes."
-    ),
-    "none": "There are no extra notes. Good job!",
-}
-
-overview_chord_summary_message = (
-    "Chords: {correct}/{total} correct, "
-    "{imperfect}/{total} imperfect (some notes missing or extra), "
-    "{wrong}/{total} completely wrong."
+# Shown above the detail section, so students know these per-note
+# claims are only as reliable as the analysis behind them.
+detail_caveat_message = (
+    "The per-note comments below are generated automatically and may not "
+    "be accurate for every note, especially if your recording was "
+    "transcribed from audio."
 )
-overview_chord_missing_message = "{count} {chord_word} missed."
-overview_chord_extra_message = "{count} extra {chord_word} played."
 
 note_detail_missing_message = "Note {index} (pitch {pitch}) is missing in your performance."
 note_detail_extra_message = "Extra note played: pitch {pitch} at t={time:.2f}s "
@@ -231,6 +196,5 @@ chord_detail_timing_message = (
     "({relative_pct:.0f}% of the expected interval)."
 )
 
-report_overview_header = "Overview: "
 no_note_errors_message = "All melody notes played correctly!!"
 no_chord_errors_message = "Great performance! No further issues on chords found."

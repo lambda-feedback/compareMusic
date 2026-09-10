@@ -12,6 +12,17 @@ COPY pyproject.toml poetry.lock ./
 RUN --mount=type=cache,target=$POETRY_CACHE_DIR \
     poetry install --without dev --no-root
 
+# basic-pitch picks its inference backend at import time, trying CoreML, then
+# TensorFlow, then TFLite, then ONNX. On linux/amd64 `tensorflow` arrives as a
+# transitive dependency and wins that race, so `import basic_pitch` drags in a
+# ~1 GB TensorFlow import that runs for several seconds on a cold Lambda and
+# loads the TF SavedModel. Drop TensorFlow here so basic-pitch falls through to
+# the bundled ONNX model (onnxruntime is declared explicitly via
+# basic-pitch[onnx] in pyproject.toml). See backend_test.py.
+RUN /app/.venv/bin/pip uninstall -y \
+        tensorflow tensorflow-estimator tensorflow-io-gcs-filesystem \
+        tensorboard tensorboard-data-server keras || true
+
 FROM ghcr.io/lambda-feedback/evaluation-function-base/python:3.11
 
 ENV VIRTUAL_ENV=/app/.venv \

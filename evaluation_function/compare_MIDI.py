@@ -40,6 +40,28 @@ GLOBAL_FAST_THRESHOLD = 0.85   # timing_scale < 0.85  -> "overall too fast"
 # Default threshold: notes starting within 50ms are grouped as one chord.
 DEFAULT_CHORD_ONSET_WINDOW = 0.05
 
+# Feedback for the two degenerate cases, where there is nothing to compare.
+# These are named rather than written inline so that tests can assert which
+# case was hit without depending on the wording, which is free to change.
+NO_REFERENCE_NOTES_MESSAGE = "\n".join([
+    "Practice Summary",
+    "This question has no reference notes to compare your performance "
+    "against, so it could not be evaluated. Please let your teacher know.",
+])
+
+NO_RESPONSE_NOTES_MESSAGE = "\n".join([
+    "Practice Summary",
+    "No notes were detected in your submission, so there was nothing "
+    "to compare against the reference.",
+    "",
+    "What to check",
+    "If you submitted a recording, check that it is not silent and that "
+    "your instrument can be heard clearly. If you submitted MIDI, check "
+    "that it contains notes.",
+    "",
+    "Have another go when you are ready.",
+])
+
 # template and helper functions for chords
 # ------------------------------------------------------------------------------
 # Chord template dictionary.
@@ -285,18 +307,25 @@ def build_cost_matrix(response_events, ref_events, gap_penalty=DEFAULT_GAP_PENAL
 
     # Build simple per-event arrays: is this event a chord, and (if it is a
     # single note) what is its pitch.
-    res_is_chord = np.array([event["event_type"] == "chord" for event in response_events])
-    ref_is_chord = np.array([event["event_type"] == "chord" for event in ref_events])
+    # The dtypes are given explicitly so that an empty event list still
+    # produces bool/int arrays; numpy would otherwise default them to float
+    # and the boolean masks below would fail.
+    res_is_chord = np.array(
+        [event["event_type"] == "chord" for event in response_events], dtype=bool
+    )
+    ref_is_chord = np.array(
+        [event["event_type"] == "chord" for event in ref_events], dtype=bool
+    )
 
     # For note events, extract the pitch; for chords, use 0 as a placeholder.
     res_pitch = np.array([
         event["notes"][0]["pitch"] if event["event_type"] == "note" else 0
         for event in response_events
-    ])
+    ], dtype=int)
     ref_pitch = np.array([
         event["notes"][0]["pitch"] if event["event_type"] == "note" else 0
         for event in ref_events
-    ])
+    ], dtype=int)
 
     # Note-vs-note cost: vectorised absolute pitch difference for every pair.
     # Shape (N, 1) - shape (1, M) broadcasts to (N, M)
@@ -351,10 +380,12 @@ def event_alignment_ED(response_events, ref_events, gap_penalty=DEFAULT_GAP_PENA
         D: accumulated cost matrix, shape (N+1, M+1)
     """
     # if a raw note dict with "pitch"/"start"/"duration" but no "event_type" is
-    # passed in, group them into events first. 
-    if "event_type" not in response_events[0]:
+    # passed in, group them into events first.
+    # An empty list has nothing to inspect, and nothing to group either, so
+    # skip the check rather than indexing into it.
+    if response_events and "event_type" not in response_events[0]:
         response_events = group_notes_into_events(response_events)
-    if "event_type" not in ref_events[0]:
+    if ref_events and "event_type" not in ref_events[0]:
         ref_events = group_notes_into_events(ref_events)
 
     # the rows of D correspond to response events
@@ -1087,6 +1118,16 @@ def polished_feedback_message(event_details, response_events, ref_events, stats,
     Returns:
         feedback_message (str)
     """
+    # Degenerate submissions, handled before the tiered messages below.
+    # The usual wording would be actively misleading here: telling a student
+    # who submitted nothing that they "missed" every note, or praising a
+    # perfect match against a reference that contains no notes at all.
+    if len(ref_events) == 0:
+        return NO_REFERENCE_NOTES_MESSAGE
+
+    if len(response_events) == 0:
+        return NO_RESPONSE_NOTES_MESSAGE
+
     note_events  = [n for n in event_details if n["event_type"] == "note"]
     chord_events = [ch for ch in event_details if ch["event_type"] == "chord"]
 
@@ -1434,8 +1475,13 @@ def compare_performance_ED(responseMIDI, refMIDI,
     )
 
     # Step 6: Overall pass/fail judgement
+    # A submission with no notes on either side cannot be correct, even though
+    # the counts below are all trivially satisfied when there is nothing to
+    # compare.
     is_correct = (
-        stats["total_notes_missing"] == 0
+        len(response_events) > 0
+        and len(ref_events) > 0
+        and stats["total_notes_missing"] == 0
         and stats["total_notes_extra"] == 0
         and stats["total_chords_missing"] == 0
         and stats["total_chords_extra"] == 0

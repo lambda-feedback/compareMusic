@@ -13,12 +13,11 @@ summary goes in "feedback" as a short line of text.
 """
 
 import json
-import os
 from typing import Any
 
 from lf_toolkit.preview import Result, Params, Preview
 
-from .audio_processing import AUDIO_EXTENSIONS
+from .audio_processing import AUDIO_EXTENSIONS, file_extension, file_name
 from .compare_MIDI import PITCH_CLASS_NAMES
 
 # Fixed messages, named so that tests can assert which case was hit without
@@ -68,9 +67,8 @@ def preview_function(response: Any, params: Params) -> Result:
         # An audio recording is reported as such. Transcribing it here would
         # take seconds, which is far too slow while the student is working.
         if isinstance(response, str):
-            extension = os.path.splitext(response)[1].lower()
-            if extension in AUDIO_EXTENSIONS:
-                name = os.path.basename(response)
+            if file_extension(response) in AUDIO_EXTENSIONS:
+                name = file_name(response)
                 return Result(preview=Preview(
                     feedback=f"Audio recording {name}, transcribed on submission."
                 ))

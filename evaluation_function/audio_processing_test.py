@@ -12,6 +12,7 @@ Sections
 3. Tests for local_file
 4. Tests for reading MIDI files
 5. Tests that every supported audio format decodes
+6. Tests for uploaded file objects from the Audio response area
 """
 
 
@@ -32,8 +33,10 @@ from .audio_processing import (
     AUDIO_EXTENSIONS,
     is_audio_input,
     is_midi_file_input,
+    is_uploaded_file,
     local_file,
     midi_file_to_notes,
+    uploaded_file_extension,
 )
 
 
@@ -203,3 +206,31 @@ class TestAudioFormatsDecode(unittest.TestCase):
                     )
                     samples, _ = librosa.load(path, sr=22050, mono=True)
                     assert len(samples) > 0
+
+
+# 6. Tests for uploaded file objects from the Audio response area
+# ------------------------------------------------------------------------------
+class TestUploadedFileExtension(unittest.TestCase):
+
+    def upload(self, url, name="", type=""):
+        return {"url": url, "name": name, "type": type, "size": 1, "comment": ""}
+
+    def test_is_uploaded_file(self):
+        assert is_uploaded_file(self.upload("https://x.example.com/a.wav")) is True
+        assert is_uploaded_file({"notes": []}) is False
+        assert is_uploaded_file("https://x.example.com/a.wav") is False
+
+    def test_extension_from_the_url(self):
+        assert uploaded_file_extension(self.upload("https://x.example.com/a.mp3?sig=1")) == ".mp3"
+
+    def test_extension_from_the_name_when_the_url_has_none(self):
+        upload = self.upload("https://x.example.com/abc123", name="Take 2.FLAC")
+        assert uploaded_file_extension(upload) == ".flac"
+
+    def test_extension_from_the_mime_type_as_a_last_resort(self):
+        upload = self.upload("https://x.example.com/abc123", name="recording", type="audio/mp4")
+        assert uploaded_file_extension(upload) == ".m4a"
+
+    def test_unknown_file_has_no_extension(self):
+        upload = self.upload("https://x.example.com/a.pdf", name="a.pdf", type="application/pdf")
+        assert uploaded_file_extension(upload) == ""

@@ -113,3 +113,26 @@ class TestMidiFileSubmissions(unittest.TestCase):
             path = os.path.join(directory, "practice.mid")
             write_midi(path, [(60, 0.0, 0.5), (64, 0.5, 1.0)])
             assert "2 notes" in feedback_for(path)
+
+
+class TestUploadedFileSubmissions(unittest.TestCase):
+    """The Audio response area sends a list of uploaded file objects."""
+
+    def upload(self, url, name, type):
+        return [{"url": url, "name": name, "type": type, "size": 1, "comment": ""}]
+
+    def test_empty_upload_list_has_no_notes(self):
+        assert feedback_for([]) == NO_NOTES_MESSAGE
+
+    def test_uploaded_audio_is_named_not_transcribed(self):
+        feedback = feedback_for(self.upload(
+            "https://bucket.example.com/abc.wav?X-Amz-Signature=abc", "practice.wav", "audio/wav"
+        ))
+        assert "audio" in feedback.lower()
+        assert "practice.wav" in feedback
+
+    def test_uploaded_midi_is_summarised(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "practice.mid")
+            write_midi(path, [(60, 0.0, 0.5), (64, 0.5, 1.0)])
+            assert "2 notes" in feedback_for(self.upload(path, "practice.mid", "audio/midi"))

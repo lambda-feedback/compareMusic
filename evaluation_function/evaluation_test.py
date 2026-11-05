@@ -854,3 +854,48 @@ class TestMidiFileInput(unittest.TestCase):
             result = evaluation_function(path, reference, {})
 
         assert result["is_correct"] is True
+
+
+class TestUploadedFileInput(unittest.TestCase):
+    """
+    The platform's Audio response area sends both response and answer as a
+    list of uploaded files: [{"url", "name", "type", "size", "comment"}].
+    """
+
+    NOTES = [(60, 0.0, 0.5), (62, 0.5, 1.0), (64, 1.0, 1.5), (65, 1.5, 2.0)]
+
+    def setUp(self):
+        import os
+        import tempfile
+
+        from .audio_processing_test import write_midi
+
+        self.directory = tempfile.TemporaryDirectory()
+        self.midi_path = os.path.join(self.directory.name, "performance.mid")
+        write_midi(self.midi_path, self.NOTES)
+
+    def tearDown(self):
+        self.directory.cleanup()
+
+    def upload(self, url, name="performance.mid", type="audio/midi"):
+        return [{"url": url, "name": name, "type": type, "size": 162, "comment": ""}]
+
+    def test_uploaded_midi_matches_the_same_uploaded_midi(self):
+        result = evaluation_function(self.upload(self.midi_path), self.upload(self.midi_path), {})
+        assert result["is_correct"] is True
+
+    def test_empty_answer_list_reports_a_misconfigured_question(self):
+        result = evaluation_function(self.upload(self.midi_path), [], {})
+        assert result["is_correct"] is False
+        assert result["feedback"] == NO_REFERENCE_NOTES_MESSAGE
+
+    def test_empty_response_list_reports_no_submission(self):
+        result = evaluation_function([], self.upload(self.midi_path), {})
+        assert result["is_correct"] is False
+        assert result["feedback"] == NO_RESPONSE_NOTES_MESSAGE
+
+    def test_unsupported_file_is_reported_not_raised(self):
+        upload = self.upload("https://x.example.com/notes.pdf", "notes.pdf", "application/pdf")
+        result = evaluation_function(upload, self.upload(self.midi_path), {})
+        assert result["is_correct"] is False
+        assert "notes.pdf" in result["feedback"]

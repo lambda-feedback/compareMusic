@@ -13,12 +13,20 @@ summary goes in "feedback" as a short line of text.
 """
 
 import json
-import os
 from typing import Any
 
 from lf_toolkit.preview import Result, Params, Preview
 
-from .audio_processing import AUDIO_EXTENSIONS
+from .audio_processing import (
+    AUDIO_EXTENSIONS,
+    MIDI_EXTENSIONS,
+    file_extension,
+    file_name,
+    is_midi_file_input,
+    is_uploaded_file,
+    midi_file_to_notes,
+    uploaded_file_extension,
+)
 from .compare_MIDI import PITCH_CLASS_NAMES
 
 # Fixed messages, named so that tests can assert which case was hit without
@@ -68,14 +76,36 @@ def preview_function(response: Any, params: Params) -> Result:
         # An audio recording is reported as such. Transcribing it here would
         # take seconds, which is far too slow while the student is working.
         if isinstance(response, str):
-            extension = os.path.splitext(response)[1].lower()
-            if extension in AUDIO_EXTENSIONS:
-                name = os.path.basename(response)
+            if file_extension(response) in AUDIO_EXTENSIONS:
+                name = file_name(response)
                 return Result(preview=Preview(
                     feedback=f"Audio recording {name}, transcribed on submission."
                 ))
 
-            response = json.loads(response)
+            # A MIDI file is small and quick to read, so it is summarised
+            # like note data rather than just named.
+            if is_midi_file_input(response):
+                response = midi_file_to_notes(response)
+            else:
+                response = json.loads(response)
+
+        # The platform's Audio response area sends a list of uploaded files;
+        # only the first one is marked.
+        if isinstance(response, list):
+            if not response:
+                return Result(preview=Preview(feedback=NO_NOTES_MESSAGE))
+            response = response[0]
+
+        if is_uploaded_file(response):
+            extension = uploaded_file_extension(response)
+            name = response.get("name") or file_name(response["url"])
+            if extension in AUDIO_EXTENSIONS:
+                return Result(preview=Preview(
+                    feedback=f"Audio recording {name}, transcribed on submission."
+                ))
+            if extension not in MIDI_EXTENSIONS:
+                return Result(preview=Preview(feedback=UNREADABLE_MESSAGE))
+            response = midi_file_to_notes(response["url"], extension)
 
         return Result(preview=Preview(feedback=summarise_notes(response["notes"])))
 

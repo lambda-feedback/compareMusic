@@ -12,7 +12,7 @@ The feedback message was structured into four parts.
 
 ## Setting up a question
 
-The **Answer** and **Response** can be audio file path of music recordings, or MIDI (a dict, or a JSON string of a dict) format such as:
+The **Answer** and **Response** can be a path or URL to an audio recording (`.mp3`, `.wav`, `.ogg`, `.aac`, `.flac`, `.opus` or `.m4a`, transcribed to MIDI first), a path or URL to a MIDI file (`.mid` / `.midi`), or MIDI (a dict, or a JSON string of a dict) format such as:
 ```json
 {
   "notes": [

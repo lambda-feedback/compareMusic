@@ -2,7 +2,7 @@
 
 An evaluation function for the [Lambda Feedback](https://lambdafeedback.com) platform. It compares a student's music performance against a reference performance and returns formative feedback on pitch accuracy, timing, note duration and chords.
 
-The student's response and the reference answer can each be MIDI note data, or the path to an audio recording, which is transcribed to MIDI before the comparison.
+The student's response and the reference answer can each be MIDI note data, a path or URL to a MIDI file (`.mid` / `.midi`), or a path or URL to an audio recording (`.mp3`, `.wav`, `.ogg`, `.aac`, `.flac`, `.opus` or `.m4a`), which is transcribed to MIDI before the comparison.
 
 ## Deployment
 

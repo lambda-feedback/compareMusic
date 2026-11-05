@@ -16,6 +16,10 @@ import time
 import contextlib
 import io
 import os
+import shutil
+import tempfile
+import urllib.request
+from urllib.parse import urlparse
 
 # basic_pitch (and its librosa / numba / onnxruntime dependencies) is a very
 # heavy import - tens of seconds on a cold Lambda. It is imported lazily inside
@@ -41,10 +45,107 @@ MAX_GAP_SECONDS = 0.02
 MAX_FRAGMENT_DURATION = 0.15
 
 
-# File extensions we treat as "audio that needs transcription"
-AUDIO_EXTENSIONS = [".wav", ".mp3", ".m4a", ".flac", ".ogg"]
+# File extensions we treat as "audio that needs transcription".
+# librosa decodes wav, flac, ogg, opus and mp3 through libsndfile; m4a and aac
+# fall back to audioread, which needs the ffmpeg installed in the Dockerfile.
+AUDIO_EXTENSIONS = [".wav", ".mp3", ".m4a", ".aac", ".flac", ".ogg", ".opus"]
 # File extensions we treat as "already MIDI, no transcription needed"
 MIDI_EXTENSIONS = [".mid", ".midi"]
+
+# MIME types the platform's Audio response area reports for uploaded files,
+# used when neither the URL nor the file name carries a known extension.
+# Mirrors AUDIO_MIME_TYPES in client-web's Audio.schema.ts.
+MIME_TYPE_EXTENSIONS = {
+    "audio/mpeg": ".mp3",
+    "audio/wav": ".wav",
+    "audio/mp4": ".m4a",
+    "audio/ogg": ".ogg",
+    "audio/aac": ".aac",
+    "audio/flac": ".flac",
+    "audio/opus": ".opus",
+    "audio/midi": ".mid",
+}
+
+# How long to wait for an audio download before giving up.
+DOWNLOAD_TIMEOUT_SECONDS = 30
+
+
+# Helpers for reading a local path or a URL
+# ---------------------------------------------------------------------
+def file_extension(path):
+    """
+    Return the lowercase file extension of a local path or a URL.
+
+    Audio submitted from the platform arrives as a URL to an object in a
+    bucket, and those URLs are usually presigned, so splitting the raw
+    string would read the extension as ".wav?X-Amz-Signature=...".
+    Taking the URL path first drops the query string and the fragment.
+    Local paths are unaffected -- they parse as a path and nothing else.
+    """
+    return os.path.splitext(urlparse(str(path)).path)[1].lower()
+
+
+def file_name(path):
+    """
+    Return the base name of a local path or a URL, without any query
+    string. Used for messages shown to the student, so a presigned URL
+    does not print its whole signature back at them.
+    """
+    return os.path.basename(urlparse(str(path)).path)
+
+
+def is_url(value):
+    """
+    Return True if value is an http(s) URL rather than a local file path.
+    """
+    return isinstance(value, str) and urlparse(value).scheme in ("http", "https")
+
+
+def is_uploaded_file(value):
+    """
+    Return True if value is a file object from the platform's Audio
+    response area: {"url", "name", "type", "size", "comment"}.
+    """
+    return isinstance(value, dict) and isinstance(value.get("url"), str)
+
+
+def uploaded_file_extension(file):
+    """
+    Return the extension of an uploaded file object, taken from its URL,
+    then its file name, then its MIME type, whichever is recognised first.
+    """
+    known = AUDIO_EXTENSIONS + MIDI_EXTENSIONS
+    for candidate in (file.get("url"), file.get("name")):
+        extension = file_extension(candidate or "")
+        if extension in known:
+            return extension
+    return MIME_TYPE_EXTENSIONS.get(file.get("type"), "")
+
+
+@contextlib.contextmanager
+def local_file(path, extension=None):
+    """
+    Yield a local file path for path, which may be a local path or a URL.
+
+    Basic Pitch (via librosa) and pretty_midi both need a file on disk, so
+    a URL has to be downloaded first. A local path is handed straight
+    back. A downloaded file is removed once the caller is done with it.
+    extension sets the temporary file's suffix, for URLs that lack one.
+    """
+    if not is_url(path):
+        yield path
+        return
+
+    handle, temp_path = tempfile.mkstemp(suffix=extension or file_extension(path))
+    os.close(handle)
+    try:
+        with urllib.request.urlopen(
+            path, timeout=DOWNLOAD_TIMEOUT_SECONDS
+        ) as response, open(temp_path, "wb") as temp_file:
+            shutil.copyfileobj(response, temp_file)
+        yield temp_path
+    finally:
+        os.remove(temp_path)
 
 
 # Helper function to check if the response is audio
@@ -55,24 +156,48 @@ def is_audio_input(response):
     through the AMT pipeline before it can be compared.
 
     response can be:
-      - a file path string (checked by extension)
+      - a file path or URL string (checked by extension)
       - a dict that already has a "notes" key (already MIDI, skip AMT)
     """
     # Case 1: response is already a notes dictionary, no AMT needed
     if isinstance(response, dict) and "notes" in response:
         return False
 
-    # Case 2: response is a file path string, check its extension
+    # Case 2: response is a file path or URL string, check its extension
     if isinstance(response, str):
-        file_extension = os.path.splitext(response)[1].lower()
-        if file_extension in AUDIO_EXTENSIONS:
+        extension = file_extension(response)
+        if extension in AUDIO_EXTENSIONS:
             return True
-        if file_extension in MIDI_EXTENSIONS:
+        if extension in MIDI_EXTENSIONS:
             return False
 
     # Default: if we cannot tell, assume it is not audio
     # (safer to fail toward the existing, well-tested MIDI path)
     return False
+
+
+# Reading MIDI files
+# ---------------------------------------------------------------------
+def is_midi_file_input(response):
+    """
+    Return True if response is a path or URL to a .mid / .midi file, which
+    has to be read into note data rather than parsed as JSON.
+    """
+    return isinstance(response, str) and file_extension(response) in MIDI_EXTENSIONS
+
+
+def midi_file_to_notes(path, extension=None):
+    """
+    Read a MIDI file (local path or URL) into the {"notes": [...]} format
+    expected by compare_performance_ED. Drum tracks are ignored, as they
+    are for transcribed audio.
+    """
+    import pretty_midi
+
+    with local_file(path, extension) as local_path:
+        midi = pretty_midi.PrettyMIDI(local_path)
+
+    return build_compare_midi_input(convert_predicted_midi_to_notes(midi), "duration")
 
 
 # Load the model
@@ -318,14 +443,19 @@ def build_compare_midi_input(notes, duration_key="duration"):
 
 # Full pipeline
 # ---------------------------------------------------------------------
-def transcription_pipeline(audio_path, model, apply_postprocessing=True):
+def transcription_pipeline(audio_path, model, apply_postprocessing=True, extension=None):
     """
     Full production pipeline: run Basic Pitch, optionally apply post-processing, 
     and return notes ready to hand to compare_MIDI.py.
 
+    audio_path may be a local path or a URL; a URL is downloaded to a
+    temporary file first. runtime_seconds covers transcription only, not
+    the download.
+
     Returns (compare_midi_input, predicted_notes, runtime_seconds).
     """
-    predicted_notes, predicted_midi, runtime_seconds = transcribe_audio(audio_path, model)
+    with local_file(audio_path, extension) as local_path:
+        predicted_notes, predicted_midi, runtime_seconds = transcribe_audio(local_path, model)
 
     if apply_postprocessing:
         predicted_notes = postprocess_predictions(predicted_notes)

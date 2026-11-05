@@ -20,9 +20,16 @@ from .compare_MIDI import (
     DEFAULT_CHORD_ONSET_WINDOW
 )
 from .audio_processing import (
+    AUDIO_EXTENSIONS,
+    file_extension,
+    file_name,
     is_audio_input,
+    is_midi_file_input,
+    is_uploaded_file,
     load_basic_pitch_model,
+    midi_file_to_notes,
     transcription_pipeline,
+    uploaded_file_extension,
 )
 
 # The Basic Pitch model is loaded lazily, on the first audio request, rather
@@ -50,24 +57,58 @@ def parse_json_input(data: Any) -> Any:
     return data
 
 
+class UnsupportedFileError(ValueError):
+    """An uploaded file is not in a format this function can read."""
+
+
+def read_file(source: str, extension: str) -> Dict[str, Any]:
+    """Read an audio or MIDI file (path or URL) into note data."""
+    if extension in AUDIO_EXTENSIONS:
+        compare_midi_input, predicted_notes, runtime_seconds = transcription_pipeline(
+            source, get_basic_pitch_model(), extension=extension
+        )
+        return compare_midi_input
+    return midi_file_to_notes(source, extension)
+
+
 def prepare_input(raw_input: Any) -> Any:
     """
     Turn one raw input (either response or answer) into the
     format that compare_performance_ED expects.
 
-    There are two possible cases:
-      - raw_input is an audio file path
+    The possible cases are:
+      - raw_input is an audio file path or URL
         -> run it through the AMT (audio-to-MIDI) transcription pipeline
-      - raw_input is already MIDI (a dict, or a JSON string of a dict)
-        -> just parse it as JSON, no transcription needed
+      - raw_input is a .mid / .midi file path or URL
+        -> read the notes from the file, no transcription needed
+      - raw_input is a list of uploaded files from the platform's Audio
+        response area, [{"url", "name", "type", "size", "comment"}, ...]
+        -> read the first file as above; an empty list has no notes
+      - raw_input is already note data (a dict, or a JSON string of a dict)
+        -> just parse it as JSON
     """
-    if is_audio_input(raw_input):
-        compare_midi_input, predicted_notes, runtime_seconds = transcription_pipeline(
-            raw_input, get_basic_pitch_model()
-        )
-        return compare_midi_input
+    if is_audio_input(raw_input) or is_midi_file_input(raw_input):
+        return read_file(raw_input, file_extension(raw_input))
 
-    return parse_json_input(raw_input)
+    data = parse_json_input(raw_input)
+
+    if isinstance(data, list):
+        if not data:
+            return {"notes": []}
+        # The response area allows several files, but a submission is one
+        # performance, so only the first file is marked.
+        data = data[0]
+
+    if is_uploaded_file(data):
+        extension = uploaded_file_extension(data)
+        if not extension:
+            raise UnsupportedFileError(
+                f"{data.get('name') or file_name(data['url'])} is not a supported "
+                "audio or MIDI file."
+            )
+        return read_file(data["url"], extension)
+
+    return data
 
 
 def evaluation_function(
@@ -102,8 +143,11 @@ def evaluation_function(
 
     # The Lambda Feedback app sends response/answer as JSON strings,
     # convert them into Python object first
-    response = prepare_input(response)
-    answer = prepare_input(answer)
+    try:
+        response = prepare_input(response)
+        answer = prepare_input(answer)
+    except UnsupportedFileError as error:
+        return {"is_correct": False, "feedback": str(error)}
 
     result = compare_performance_ED(
         response,

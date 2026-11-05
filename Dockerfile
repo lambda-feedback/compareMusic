@@ -25,6 +25,12 @@ RUN /app/.venv/bin/pip uninstall -y \
 
 FROM ghcr.io/lambda-feedback/evaluation-function-base/python:3.11
 
+# librosa decodes wav/flac/ogg/opus/mp3 itself through libsndfile, but m4a and
+# aac fall back to audioread, which shells out to ffmpeg.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
 ENV VIRTUAL_ENV=/app/.venv \
     PATH="/app/.venv/bin:$PATH"
 

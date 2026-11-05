@@ -12,7 +12,7 @@ Automated formative feedback on music practice. Compares a student's performance
 | `global_fast_threshold` | `0.85` | Overall tempo more than 15% faster than reference triggers a "too fast" comment. |
 | `chord_onset_window` | `0.05` | How close together (in seconds) notes need to start to be treated as one chord rather than separate notes. Increase this if fast chords are being incorrectly split into separate notes; decrease it if separate fast notes are being incorrectly grouped into a chord. |
 
-Both `response` and `answer` (i.e. reference) can be audio file path of music recordings, or MIDI (a dict, or a JSON string of a dict), they will be converted to the following format to pass through the pipeline:
+Both `response` and `answer` (i.e. reference) can be a path or URL to an audio recording (`.mp3`, `.wav`, `.ogg`, `.aac`, `.flac`, `.opus` or `.m4a`, transcribed to MIDI first), a path or URL to a MIDI file (`.mid` / `.midi`), or MIDI (a dict, or a JSON string of a dict), they will be converted to the following format to pass through the pipeline:
 ```json
 {
   "notes": [

@@ -9,11 +9,16 @@ Sections
 --------
 1. Tests for file_extension, file_name and is_url
 2. Tests for is_audio_input
-3. Tests for local_audio_file
+3. Tests for local_file
+4. Tests for reading MIDI files
+5. Tests that every supported audio format decodes
 """
 
 
+import contextlib
 import os
+import shutil
+import subprocess
 import tempfile
 import threading
 import unittest
@@ -24,8 +29,11 @@ from .audio_processing import (
     file_extension,
     file_name,
     is_url,
+    AUDIO_EXTENSIONS,
     is_audio_input,
-    local_audio_file,
+    is_midi_file_input,
+    local_file,
+    midi_file_to_notes,
 )
 
 
@@ -75,20 +83,37 @@ class TestIsAudioInput(unittest.TestCase):
     def test_midi_url_is_not_audio(self):
         assert is_audio_input("https://x.example.com/rec.mid?sig=abc") is False
 
+    def test_every_supported_audio_extension_is_recognised(self):
+        for extension in [".mp3", ".wav", ".ogg", ".aac", ".flac", ".opus", ".m4a"]:
+            with self.subTest(extension=extension):
+                assert is_audio_input(f"https://x.example.com/rec{extension}?sig=abc") is True
 
-# 3. Tests for local_audio_file
+
+# 3. Tests for local_file
 # ------------------------------------------------------------------------------
 class QuietHandler(SimpleHTTPRequestHandler):
     def log_message(self, *args):
         pass
 
 
-class TestLocalAudioFile(unittest.TestCase):
+@contextlib.contextmanager
+def serve_directory(directory):
+    """Serve directory over HTTP on a free local port; yield its base URL."""
+    handler = partial(QuietHandler, directory=directory)
+    server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        yield f"http://127.0.0.1:{server.server_port}"
+    finally:
+        server.shutdown()
+
+
+class TestLocalFile(unittest.TestCase):
 
     CONTENT = b"stand-in for audio bytes"
 
     def test_local_path_is_handed_back_unchanged(self):
-        with local_audio_file("/uploads/rec.wav") as path:
+        with local_file("/uploads/rec.wav") as path:
             assert path == "/uploads/rec.wav"
 
     def test_url_is_downloaded_and_removed_afterwards(self):
@@ -102,7 +127,7 @@ class TestLocalAudioFile(unittest.TestCase):
 
             try:
                 url = f"http://127.0.0.1:{server.server_port}/rec.wav?X-Amz-Signature=abc"
-                with local_audio_file(url) as path:
+                with local_file(url) as path:
                     # Basic Pitch picks its decoder by extension, so the
                     # temporary file has to keep the .wav suffix.
                     assert path.endswith(".wav")
@@ -113,3 +138,68 @@ class TestLocalAudioFile(unittest.TestCase):
                 assert not os.path.exists(downloaded_path)
             finally:
                 server.shutdown()
+
+
+# 4. Tests for reading MIDI files
+# ------------------------------------------------------------------------------
+def write_midi(path, notes):
+    """Write (pitch, start, end) tuples to a MIDI file, plus one drum hit."""
+    import pretty_midi
+
+    midi = pretty_midi.PrettyMIDI()
+    piano = pretty_midi.Instrument(program=0)
+    for pitch, start, end in notes:
+        piano.notes.append(pretty_midi.Note(velocity=80, pitch=pitch, start=start, end=end))
+    drums = pretty_midi.Instrument(program=0, is_drum=True)
+    drums.notes.append(pretty_midi.Note(velocity=80, pitch=36, start=0.0, end=0.1))
+    midi.instruments.extend([piano, drums])
+    midi.write(path)
+
+
+class TestMidiFiles(unittest.TestCase):
+
+    NOTES = [(64, 0.5, 1.0), (60, 0.0, 0.5)]
+
+    def test_midi_paths_and_urls_are_recognised(self):
+        assert is_midi_file_input("/uploads/rec.mid") is True
+        assert is_midi_file_input("https://x.example.com/rec.MIDI?sig=abc") is True
+        assert is_midi_file_input("https://x.example.com/rec.wav") is False
+        assert is_midi_file_input('{"notes": []}') is False
+        assert is_midi_file_input({"notes": []}) is False
+
+    def test_reads_notes_from_a_url_ignoring_drums(self):
+        with tempfile.TemporaryDirectory() as directory:
+            write_midi(os.path.join(directory, "rec.mid"), self.NOTES)
+            with serve_directory(directory) as base_url:
+                result = midi_file_to_notes(f"{base_url}/rec.mid?X-Amz-Signature=abc")
+
+        assert [note["pitch"] for note in result["notes"]] == [60, 64]
+        assert result["notes"][1]["start"] == 0.5
+        assert abs(result["notes"][1]["duration"] - 0.5) < 1e-6
+
+
+# 5. Tests that every supported audio format decodes
+# ------------------------------------------------------------------------------
+@unittest.skipUnless(shutil.which("ffmpeg"), "ffmpeg is needed to create and decode the samples")
+class TestAudioFormatsDecode(unittest.TestCase):
+    """
+    Basic Pitch loads audio with librosa. Encode a short tone in each
+    supported format and check librosa can read it back, so a missing
+    decoder (e.g. no ffmpeg for m4a/aac) shows up here rather than on a
+    student's submission.
+    """
+
+    def test_each_format_decodes(self):
+        import librosa
+
+        with tempfile.TemporaryDirectory() as directory:
+            for extension in AUDIO_EXTENSIONS:
+                with self.subTest(extension=extension):
+                    path = os.path.join(directory, "tone" + extension)
+                    subprocess.run(
+                        ["ffmpeg", "-loglevel", "error", "-f", "lavfi",
+                         "-i", "sine=frequency=440:duration=0.5", path],
+                        check=True,
+                    )
+                    samples, _ = librosa.load(path, sr=22050, mono=True)
+                    assert len(samples) > 0

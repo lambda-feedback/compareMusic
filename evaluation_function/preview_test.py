@@ -15,7 +15,11 @@ Run locally with:  python -m pytest evaluation_function/preview_test.py -v
 """
 
 import json
+import os
+import tempfile
 import unittest
+
+from .audio_processing_test import write_midi
 
 from .evaluation_test import make_midi
 from .preview import (
@@ -100,3 +104,12 @@ class TestNoteName(unittest.TestCase):
 
     def test_accidental(self):
         assert note_name(61) == "C#4"
+
+
+class TestMidiFileSubmissions(unittest.TestCase):
+
+    def test_midi_file_is_summarised_like_note_data(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "practice.mid")
+            write_midi(path, [(60, 0.0, 0.5), (64, 0.5, 1.0)])
+            assert "2 notes" in feedback_for(path)

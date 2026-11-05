@@ -832,3 +832,25 @@ class TestShortSubmissions(unittest.TestCase):
     def test_single_note_matching_single_note_reference_is_correct(self):
         one_note = short_melody(1)
         assert compare_performance_ED(one_note, one_note).is_correct is True
+
+
+class TestMidiFileInput(unittest.TestCase):
+    """A .mid path or URL is read into note data before comparison."""
+
+    def test_midi_file_matches_the_same_notes_as_data(self):
+        import os
+        import tempfile
+
+        from .audio_processing_test import write_midi
+
+        notes = [(60, 0.0, 0.5), (62, 0.5, 1.0), (64, 1.0, 1.5), (65, 1.5, 2.0)]
+        reference = make_midi(
+            [n[0] for n in notes], [n[1] for n in notes], [n[2] - n[1] for n in notes]
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "performance.mid")
+            write_midi(path, notes)
+            result = evaluation_function(path, reference, {})
+
+        assert result["is_correct"] is True

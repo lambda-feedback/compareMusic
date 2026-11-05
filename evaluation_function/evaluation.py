@@ -21,7 +21,9 @@ from .compare_MIDI import (
 )
 from .audio_processing import (
     is_audio_input,
+    is_midi_file_input,
     load_basic_pitch_model,
+    midi_file_to_notes,
     transcription_pipeline,
 )
 
@@ -55,17 +57,22 @@ def prepare_input(raw_input: Any) -> Any:
     Turn one raw input (either response or answer) into the
     format that compare_performance_ED expects.
 
-    There are two possible cases:
-      - raw_input is an audio file path
+    There are three possible cases:
+      - raw_input is an audio file path or URL
         -> run it through the AMT (audio-to-MIDI) transcription pipeline
-      - raw_input is already MIDI (a dict, or a JSON string of a dict)
-        -> just parse it as JSON, no transcription needed
+      - raw_input is a .mid / .midi file path or URL
+        -> read the notes from the file, no transcription needed
+      - raw_input is already note data (a dict, or a JSON string of a dict)
+        -> just parse it as JSON
     """
     if is_audio_input(raw_input):
         compare_midi_input, predicted_notes, runtime_seconds = transcription_pipeline(
             raw_input, get_basic_pitch_model()
         )
         return compare_midi_input
+
+    if is_midi_file_input(raw_input):
+        return midi_file_to_notes(raw_input)
 
     return parse_json_input(raw_input)
 

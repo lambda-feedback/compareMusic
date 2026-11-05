@@ -17,7 +17,13 @@ from typing import Any
 
 from lf_toolkit.preview import Result, Params, Preview
 
-from .audio_processing import AUDIO_EXTENSIONS, file_extension, file_name
+from .audio_processing import (
+    AUDIO_EXTENSIONS,
+    file_extension,
+    file_name,
+    is_midi_file_input,
+    midi_file_to_notes,
+)
 from .compare_MIDI import PITCH_CLASS_NAMES
 
 # Fixed messages, named so that tests can assert which case was hit without
@@ -73,7 +79,12 @@ def preview_function(response: Any, params: Params) -> Result:
                     feedback=f"Audio recording {name}, transcribed on submission."
                 ))
 
-            response = json.loads(response)
+            # A MIDI file is small and quick to read, so it is summarised
+            # like note data rather than just named.
+            if is_midi_file_input(response):
+                response = midi_file_to_notes(response)
+            else:
+                response = json.loads(response)
 
         return Result(preview=Preview(feedback=summarise_notes(response["notes"])))
 

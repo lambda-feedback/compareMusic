@@ -45,8 +45,10 @@ MAX_GAP_SECONDS = 0.02
 MAX_FRAGMENT_DURATION = 0.15
 
 
-# File extensions we treat as "audio that needs transcription"
-AUDIO_EXTENSIONS = [".wav", ".mp3", ".m4a", ".flac", ".ogg"]
+# File extensions we treat as "audio that needs transcription".
+# librosa decodes wav, flac, ogg, opus and mp3 through libsndfile; m4a and aac
+# fall back to audioread, which needs the ffmpeg installed in the Dockerfile.
+AUDIO_EXTENSIONS = [".wav", ".mp3", ".m4a", ".aac", ".flac", ".ogg", ".opus"]
 # File extensions we treat as "already MIDI, no transcription needed"
 MIDI_EXTENSIONS = [".mid", ".midi"]
 
@@ -86,23 +88,23 @@ def is_url(value):
 
 
 @contextlib.contextmanager
-def local_audio_file(audio_path):
+def local_file(path):
     """
-    Yield a local file path for audio_path.
+    Yield a local file path for path, which may be a local path or a URL.
 
-    Basic Pitch reads audio with librosa, which needs a file on disk, so
+    Basic Pitch (via librosa) and pretty_midi both need a file on disk, so
     a URL has to be downloaded first. A local path is handed straight
-    back. A downloaded file is removed once transcription is done.
+    back. A downloaded file is removed once the caller is done with it.
     """
-    if not is_url(audio_path):
-        yield audio_path
+    if not is_url(path):
+        yield path
         return
 
-    handle, temp_path = tempfile.mkstemp(suffix=file_extension(audio_path))
+    handle, temp_path = tempfile.mkstemp(suffix=file_extension(path))
     os.close(handle)
     try:
         with urllib.request.urlopen(
-            audio_path, timeout=DOWNLOAD_TIMEOUT_SECONDS
+            path, timeout=DOWNLOAD_TIMEOUT_SECONDS
         ) as response, open(temp_path, "wb") as temp_file:
             shutil.copyfileobj(response, temp_file)
         yield temp_path
@@ -136,6 +138,30 @@ def is_audio_input(response):
     # Default: if we cannot tell, assume it is not audio
     # (safer to fail toward the existing, well-tested MIDI path)
     return False
+
+
+# Reading MIDI files
+# ---------------------------------------------------------------------
+def is_midi_file_input(response):
+    """
+    Return True if response is a path or URL to a .mid / .midi file, which
+    has to be read into note data rather than parsed as JSON.
+    """
+    return isinstance(response, str) and file_extension(response) in MIDI_EXTENSIONS
+
+
+def midi_file_to_notes(path):
+    """
+    Read a MIDI file (local path or URL) into the {"notes": [...]} format
+    expected by compare_performance_ED. Drum tracks are ignored, as they
+    are for transcribed audio.
+    """
+    import pretty_midi
+
+    with local_file(path) as local_path:
+        midi = pretty_midi.PrettyMIDI(local_path)
+
+    return build_compare_midi_input(convert_predicted_midi_to_notes(midi), "duration")
 
 
 # Load the model
@@ -392,7 +418,7 @@ def transcription_pipeline(audio_path, model, apply_postprocessing=True):
 
     Returns (compare_midi_input, predicted_notes, runtime_seconds).
     """
-    with local_audio_file(audio_path) as local_path:
+    with local_file(audio_path) as local_path:
         predicted_notes, predicted_midi, runtime_seconds = transcribe_audio(local_path, model)
 
     if apply_postprocessing:

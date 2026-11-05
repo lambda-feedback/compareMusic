@@ -34,6 +34,11 @@ RUN apt-get update \
 ENV VIRTUAL_ENV=/app/.venv \
     PATH="/app/.venv/bin:$PATH"
 
+# Lambda's filesystem is read-only outside /tmp. librosa's numba functions
+# cache their compiled code next to the source by default, which fails there
+# ("cannot cache function ... no locator available"), so cache in /tmp.
+ENV NUMBA_CACHE_DIR=/tmp/numba_cache
+
 COPY --from=builder ${VIRTUAL_ENV} ${VIRTUAL_ENV}
 
 # Precompile python files for faster startup
